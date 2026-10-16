@@ -408,3 +408,119 @@ test("a question aimed at a role that is not seated is surfaced, not swallowed",
   assert.equal(turn.unrouted.length, 1);
   assert.match(r.transcript, /Đã hỏi vai không có trong phiên/);
 });
+
+// --- per-role material --------------------------------------------------------------
+// The asymmetry is the feature: one expert reads the industry process, another reads the
+// schema. The thing that can silently destroy it is a leak — private material reaching
+// the shared transcript, after which every agent sees everything and the debate is back
+// to paraphrase. These tests pin the boundary.
+
+test("private material reaches only its own role", async () => {
+  const a = seat("architect", "p1", () => ok("x"));
+  const b = seat("domain-expert", "p2", () => ok("y"));
+  await runDebate({
+    topic: "t",
+    material: {
+      shared: "AI CŨNG ĐỌC ĐƯỢC",
+      byRole: { architect: "CHỈ KIẾN TRÚC SƯ", "domain-expert": "CHỈ CHUYÊN GIA NGÀNH" },
+      sources: { architect: ["schema.sql"], "domain-expert": ["quy-trinh.md"] },
+    },
+    seats: [a, b],
+    rounds: 1,
+    language: "vi",
+    maxQuestions: 3,
+  });
+
+  const aPrompts = (a.agent as unknown as { prompts: string[] }).prompts;
+  const bPrompts = (b.agent as unknown as { prompts: string[] }).prompts;
+
+  assert.ok(aPrompts.every((p) => !p.includes("CHỈ CHUYÊN GIA NGÀNH")), "architect saw the other role's private material");
+  assert.ok(bPrompts.every((p) => !p.includes("CHỈ KIẾN TRÚC SƯ")), "domain-expert saw the other role's private material");
+  assert.match(aPrompts[0], /CHỈ KIẾN TRÚC SƯ/);
+  assert.match(bPrompts[0], /CHỈ CHUYÊN GIA NGÀNH/);
+});
+
+test("private material is re-attached every round, since the transcript never carries it", async () => {
+  const a = seat("architect", "p1", () => ok("x"));
+  await runDebate({
+    topic: "t",
+    material: { byRole: { architect: "TƯ LIỆU RIÊNG" } },
+    seats: [a, seat("domain-expert", "p2", () => ok("y"))],
+    rounds: 2,
+    language: "vi",
+    maxQuestions: 3,
+    // Without a judge the first seat also writes the dossier; skip it so this test
+    // counts debate turns only.
+    skipSynthesis: true,
+  });
+  const prompts = (a.agent as unknown as { prompts: string[] }).prompts;
+  assert.equal(prompts.length, 3, "opening + two rounds");
+  for (const [i, p] of prompts.entries()) {
+    assert.match(p, /TƯ LIỆU RIÊNG/, `round ${i} lost the private material`);
+  }
+});
+
+test("a role using private material is told to quote it, or the others cannot rebut", async () => {
+  const a = seat("architect", "p1", () => ok("x"));
+  await runDebate({
+    topic: "t",
+    material: { byRole: { architect: "TƯ LIỆU RIÊNG" } },
+    seats: [a, seat("domain-expert", "p2", () => ok("y"))],
+    rounds: 0,
+    language: "vi",
+    maxQuestions: 3,
+    skipSynthesis: true,
+  });
+  const prompt = (a.agent as unknown as { prompts: string[] }).prompts[0];
+  assert.match(prompt, /không đọc được/);
+  assert.match(prompt, /trích lại đoạn liên quan/);
+});
+
+test("the transcript records WHO got which private source but never the contents", async () => {
+  const r = await runDebate({
+    topic: "t",
+    material: {
+      byRole: { architect: "NỘI DUNG TUYỆT ĐỐI KHÔNG ĐƯỢC VÀO BIÊN BẢN" },
+      sources: { architect: ["schema.sql"] },
+    },
+    seats: [seat("architect", "p1", () => ok("x")), seat("domain-expert", "p2", () => ok("y"))],
+    rounds: 0,
+    language: "vi",
+    maxQuestions: 3,
+    skipSynthesis: true,
+  });
+  assert.match(r.transcript, /Tư liệu riêng theo vai/);
+  assert.match(r.transcript, /schema\.sql/, "the source name must be auditable");
+  assert.doesNotMatch(r.transcript, /KHÔNG ĐƯỢC VÀO BIÊN BẢN/, "private contents leaked into the shared artifact");
+});
+
+test("shared material is sent once, then carried by the transcript", async () => {
+  // Re-sending it every turn would pay for the same tokens on every later round.
+  const a = seat("architect", "p1", () => ok("x"));
+  await runDebate({
+    topic: "t",
+    material: { shared: "NỀN CHUNG" },
+    seats: [a, seat("domain-expert", "p2", () => ok("y"))],
+    rounds: 1,
+    language: "vi",
+    maxQuestions: 3,
+    skipSynthesis: true,
+  });
+  const prompts = (a.agent as unknown as { prompts: string[] }).prompts;
+  assert.match(prompts[0], /NỀN CHUNG/, "the opening turn needs it directly");
+  // Round 1 still sees it, but through the transcript header — exactly once.
+  assert.equal((prompts[1].match(/NỀN CHUNG/g) ?? []).length, 1);
+});
+
+test("a debate with no material at all still runs", async () => {
+  const r = await runDebate({
+    topic: "t",
+    seats: [seat("a", "p1", () => ok("x")), seat("b", "p2", () => ok("y"))],
+    rounds: 0,
+    language: "vi",
+    maxQuestions: 3,
+    skipSynthesis: true,
+  });
+  assert.equal(r.aborted, undefined);
+  assert.doesNotMatch(r.transcript, /Tư liệu riêng theo vai/);
+});

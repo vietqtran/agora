@@ -86,6 +86,56 @@ hỏi còn mở vào một văn bản đọc như đã chốt. Bạn trả lời
 agora -f ./brief.md -m .agora/runs/<run>/verdict.md -m ./tra-loi-cua-toi.md "..."
 ```
 
+## Mỗi agent có context riêng tới mức nào
+
+| Thành phần | Riêng từng agent? |
+|---|---|
+| Process + thư mục làm việc | **Riêng** — `mkdtemp` mỗi lượt, xoá sau khi xong |
+| Persona | **Riêng** — file `roles/*.md` |
+| Model / effort / năng lực (web, shell) | **Riêng** theo vai |
+| Câu hỏi gửi trực tiếp | **Riêng** |
+| **Tư liệu nền** | **Riêng được** — xem dưới |
+| Chủ đề + biên bản tranh luận | Chung (phải chung mới tranh luận được) |
+
+Không có state hội thoại nào nằm trong CLI: mỗi lượt là một process mới, "ký ức" do
+orchestrator giữ bằng biên bản. Vì thế hai vai chạy trên **cùng một** CLI vẫn không thấy
+được prompt của nhau.
+
+> **Lưu ý quan trọng:** persona **không tạo ra kiến thức**. File `domain-expert.md` chỉ ra
+> lệnh cho model *suy luận theo góc nhìn* chuyên gia ngành. Kiến thức thật đến từ ba nguồn:
+> tri thức sẵn có của model (đây là lý do **khác hãng** mới có giá trị), web search
+> (`needs: web`), và **tư liệu bạn nạp vào**. Muốn agent thật sự biết nghiệp vụ của bạn
+> thì phải nạp tài liệu của bạn, không phải chỉ sửa persona.
+
+### Tư liệu riêng theo vai
+
+`-m <path>` nạp tư liệu cho **mọi** vai. Thêm tiền tố tên vai để tư liệu đó chỉ một vai đọc:
+
+```bash
+agora "Thiết kế module nghiệm thu khối lượng" \
+  -m ./boi-canh-chung.md \                    # mọi vai đều đọc
+  -m domain-expert:./quy-trinh-nghiem-thu.pdf \  # chỉ chuyên gia nghiệp vụ
+  -m domain-expert:./tieu-chuan-TCVN.md \
+  -m architect:./schema-hien-tai.sql \           # chỉ kiến trúc sư
+  -m architect:./quy-uoc-code.md
+```
+
+Đây là thứ làm cho "một agent biết nghiệp vụ, một agent biết lập trình" thành thật thay vì
+hình thức. Nếu cả hai đọc cùng một đống tài liệu, chúng sẽ diễn giải lại giống nhau —
+**đồng thuận đó không chứng minh điều gì**, vì không bên nào có cơ sở độc lập để phản đối.
+
+Hai bảo đảm đi kèm:
+
+- **Không rò rỉ:** nội dung tư liệu riêng **không** vào biên bản chung, nên vai khác không
+  đọc được kể cả qua biên bản. Chỉ **tên nguồn** được ghi lại (trong `transcript.md` và
+  `run.json`) để bạn biết ai lập luận dựa trên cái gì.
+- **Phải trích dẫn khi dùng:** vai nào dùng tư liệu riêng thì được yêu cầu **trích lại đoạn
+  liên quan** vào câu trả lời. Một lập luận dựa trên tài liệu không ai đọc được là lập luận
+  không ai phản biện được — và chủ tọa sẽ tính nó như đã kiểm chứng trong khi thực tế thì chưa.
+
+Tiền tố chỉ được hiểu là tên vai khi nó **đúng là một vai trong phiên đó**, nên
+`-m https://...` và `-m C:\docs\spec.md` vẫn hoạt động bình thường.
+
 ## Cơ chế "có gì dùng nấy"
 
 Mỗi vai khai báo **ưu tiên** và **năng lực bắt buộc**, không khai báo CLI cụ thể:
@@ -242,7 +292,7 @@ lỗi riêng nó.
 
 ## Giới hạn cần biết
 
-- **Đã kiểm chứng tới đâu.** 155 test chạy trên **CLI giả**, không cần cài agent nào.
+- **Đã kiểm chứng tới đâu.** 162 test chạy trên **CLI giả**, không cần cài agent nào.
   Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
   thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
   việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
@@ -262,7 +312,7 @@ lỗi riêng nó.
 ## Phát triển
 
 ```bash
-npm test             # 155 test, không cần CLI nào
+npm test             # 162 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

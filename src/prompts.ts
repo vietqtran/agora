@@ -31,8 +31,10 @@ export type PromptCtx = {
   phase: Phase;
   /** The research question the debate exists to answer. */
   topic: string;
-  /** Optional background the user supplied (files, pasted notes, URLs). */
+  /** Background visible to EVERY participant (reaches others via the transcript too). */
   material?: string;
+  /** Background only this role can see. Never enters the shared transcript. */
+  privateMaterial?: string;
   /** Transcript so far, context view (no cost footnotes, no raw error dumps). */
   transcript?: string;
   /** Questions this role must answer this round. */
@@ -95,6 +97,31 @@ function materialBlock(ctx: PromptCtx): string {
   return [`## Tư liệu do người dùng cung cấp`, ``, ctx.material].join("\n");
 }
 
+/**
+ * Private material needs one extra instruction, and it is load-bearing.
+ *
+ * Asymmetric evidence is the point — the domain expert reads the industry process, the
+ * architect reads the schema — but an agent arguing from a document nobody else can see
+ * breaks the debate: the others cannot rebut what they cannot read, so the judge weighs
+ * an unchallenged claim as if it had survived scrutiny. So a role that uses its private
+ * material must QUOTE the relevant part into its answer, which puts it in the shared
+ * transcript where it can be attacked.
+ */
+function privateMaterialBlock(material: string): string {
+  return [
+    `## Tư liệu riêng cấp cho vai của bạn`,
+    ``,
+    `Các chuyên gia khác **không đọc được** phần tư liệu này.`,
+    ``,
+    material,
+    ``,
+    `> **Bắt buộc:** nếu bạn dùng tư liệu riêng này để lập luận, hãy **trích lại đoạn liên quan**`,
+    `> vào câu trả lời của bạn. Người khác không thấy tài liệu này, nên một lập luận dựa vào nó`,
+    `> mà không trích dẫn là lập luận không ai phản biện được — và chủ tọa sẽ tính nó như đã`,
+    `> được kiểm chứng trong khi thực tế thì không.`,
+  ].join("\n");
+}
+
 function join(parts: (string | undefined)[]): string {
   return parts.filter((p) => p && p.trim()).join("\n\n");
 }
@@ -115,6 +142,7 @@ function openingPrompt(ctx: PromptCtx): string {
       ctx.topic,
     ].join("\n"),
     materialBlock(ctx),
+    ctx.privateMaterial ? privateMaterialBlock(ctx.privateMaterial) : undefined,
     [
       `# Nhiệm vụ của bạn trong lượt này`,
       ``,
@@ -142,6 +170,9 @@ function crossExamPrompt(ctx: PromptCtx): string {
     persona(ctx),
     [`# Chủ đề cần làm rõ`, ``, ctx.topic].join("\n"),
     [`# Biên bản tranh luận tới thời điểm này`, ``, ctx.transcript ?? "(trống)"].join("\n"),
+    // Shared material already arrived inside the transcript header; private material
+    // never does, by design, so it has to be re-attached on every turn.
+    ctx.privateMaterial ? privateMaterialBlock(ctx.privateMaterial) : undefined,
     inboxBlock,
     [
       `# Nhiệm vụ của bạn trong lượt này (vòng chất vấn ${ctx.round ?? 1})`,
@@ -169,6 +200,7 @@ function verdictPrompt(ctx: PromptCtx): string {
     persona(ctx),
     [`# Chủ đề đã được tranh luận`, ``, ctx.topic].join("\n"),
     [`# Toàn bộ biên bản`, ``, ctx.transcript ?? "(trống)"].join("\n"),
+    ctx.privateMaterial ? privateMaterialBlock(ctx.privateMaterial) : undefined,
     [
       `# Nhiệm vụ của bạn`,
       ``,
@@ -203,6 +235,7 @@ function synthesisPrompt(ctx: PromptCtx): string {
     ].join("\n"),
     [`# Chủ đề ban đầu`, ``, ctx.topic].join("\n"),
     materialBlock(ctx),
+    ctx.privateMaterial ? privateMaterialBlock(ctx.privateMaterial) : undefined,
     [`# Biên bản tranh luận`, ``, ctx.transcript ?? "(trống)"].join("\n"),
     ctx.verdict ? [`# Phán quyết của chủ tọa`, ``, ctx.verdict].join("\n") : undefined,
     [

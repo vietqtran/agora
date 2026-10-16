@@ -15,9 +15,9 @@ import { remedy } from "./providers/types.ts";
 import { loadRoles, type Role } from "./roles.ts";
 import { buildAgent, providerDef } from "./providers/registry.ts";
 import { runDebate, type DebateEvent, type Seat } from "./debate.ts";
+import { loadMaterial } from "./material.ts";
 import { createRunDir, writeRun } from "./store.ts";
 import { summarizeCost } from "./transcript.ts";
-import { injectionNotice, redactSecrets, scanInjection } from "./sanitize.ts";
 
 const VERSION = "0.1.0";
 
@@ -279,55 +279,6 @@ async function cmdInit(p: Parsed): Promise<number> {
   return 0;
 }
 
-/**
- * Load background material: a local file, or a URL fetched as text.
- *
- * Everything loaded here is UNTRUSTED and is about to be shipped to two or three
- * different vendors, so it passes two guards first: credentials are redacted, and
- * injection attempts are reported to the user and flagged to the agents. See
- * src/sanitize.ts for why one of those edits and the other only warns.
- */
-async function loadMaterial(refs: string[], quiet: boolean): Promise<string | undefined> {
-  if (refs.length === 0) return undefined;
-  const parts: string[] = [];
-
-  for (const ref of refs) {
-    let raw: string;
-    let heading: string;
-    if (/^https?:\/\//i.test(ref)) {
-      heading = `### Nguồn: ${ref}`;
-      try {
-        const res = await fetch(ref, { signal: AbortSignal.timeout(30_000) });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        raw = (await res.text()).slice(0, 100_000);
-      } catch (e) {
-        // Material is context, not the task: note the gap and carry on rather than
-        // killing a run that may not even need this source.
-        log(c.yellow(`⚠ không tải được ${ref}: ${(e as Error).message}`));
-        raw = `(không tải được: ${(e as Error).message})`;
-      }
-    } else {
-      heading = `### Tư liệu: ${ref}`;
-      raw = await readFile(ref, "utf8");
-    }
-
-    const { text, redactions } = redactSecrets(raw);
-    if (redactions.length && !quiet) {
-      const what = redactions.map((r) => `${r.kind}×${r.count}`).join(", ");
-      log(c.yellow(`⚠ đã che thông tin bí mật trong ${ref}: ${what} (không gửi ra ngoài)`));
-    }
-
-    const hits = scanInjection(text);
-    if (hits.length && !quiet) {
-      log(c.yellow(`⚠ ${ref} có ${hits.length} dấu hiệu prompt-injection — đã cảnh báo cho các agent, giữ nguyên nội dung:`));
-      for (const h of hits.slice(0, 5)) log(c.dim(`    dòng ${h.line} [${h.kind}]: ${h.excerpt}`));
-    }
-
-    parts.push(`${heading}\n\n${text}${injectionNotice(hits)}`);
-  }
-  return parts.join("\n\n");
-}
-
 async function cmdDebate(p: Parsed): Promise<number> {
   const { config: loaded, sources } = await loadConfig(one(p, "config"));
   let cfg = applyFlags(loaded, p);
@@ -390,7 +341,11 @@ async function cmdDebate(p: Parsed): Promise<number> {
   const seats = castResult.debaters.map(toSeat);
   const judgeSeat = castResult.judge ? toSeat(castResult.judge) : undefined;
 
-  const material = await loadMaterial(all(p, "material"), quiet);
+  // Every role in THIS debate, judge included, can be addressed by a -m prefix.
+  const addressable = new Set([...castResult.debaters.map((b) => b.roleId), ...(castResult.judge ? [castResult.judge.roleId] : [])]);
+  const material = await loadMaterial(all(p, "material"), addressable, {
+    ...(quiet ? {} : { warn: (m) => log(`${c.yellow("⚠")} ${c.yellow(m)}`), info: (m) => log(c.dim(`    ${m}`)) }),
+  });
   const repoPath = one(p, "repo");
 
   const onEvent = (e: DebateEvent) => {
@@ -434,6 +389,7 @@ async function cmdDebate(p: Parsed): Promise<number> {
     cast: [...castResult.debaters, ...(castResult.judge ? [castResult.judge] : [])],
     warnings: castResult.warnings,
     ...(repoPath && { repoPath }),
+    ...(material?.sources && { privateMaterial: material.sources }),
   });
 
   const cost = summarizeCost(result.turns);

@@ -26,6 +26,24 @@ const execFileAsync = promisify(execFile);
 
 export type Seat = { role: Role; binding: Binding; agent: Agent };
 
+/**
+ * Background documents, split by who may read them.
+ *
+ * This split is what makes "one agent knows the industry, one knows the codebase" real
+ * rather than cosmetic. With a single shared pile, every expert reads the same input and
+ * the debate degenerates into paraphrase — agreement that proves nothing because no
+ * participant had an independent basis to disagree from. Give each role its own evidence
+ * and the disagreements become informative.
+ */
+export type Material = {
+  /** Readable by everyone; recorded once in the transcript header. */
+  shared?: string;
+  /** roleId → documents only that role sees. Never enters the shared transcript. */
+  byRole?: Record<string, string>;
+  /** roleId → source names, for the audit trail (contents stay private). */
+  sources?: Record<string, string[]>;
+};
+
 export type DebateEvent =
   | { type: "phase"; phase: Phase; round?: number; detail: string }
   | { type: "turn-start"; roleId: string; label: string }
@@ -35,7 +53,7 @@ export type DebateEvent =
 
 export type DebateInput = {
   topic: string;
-  material?: string;
+  material?: Material;
   seats: Seat[];
   judge?: Seat;
   rounds: number;
@@ -133,10 +151,25 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
   const header = [`# Phiên tranh luận chuyên gia`, ``, `## Chủ đề`, ``, topic].join("\n");
   artifact.push(header);
   context.push(header);
-  if (material) {
-    const block = [`## Tư liệu đầu vào`, ``, material].join("\n");
+  if (material?.shared) {
+    const block = [`## Tư liệu đầu vào (mọi chuyên gia đều đọc)`, ``, material.shared].join("\n");
     artifact.push(block);
     context.push(block);
+  }
+  // Private material is deliberately kept OUT of `context`: putting it there would hand
+  // it to every other agent through the transcript and erase the asymmetry. Its SOURCE
+  // names still go into the artifact, so a reader can tell who argued from what.
+  const privateSources = Object.entries(material?.sources ?? {}).filter(([, v]) => v.length);
+  if (privateSources.length) {
+    artifact.push(
+      [
+        `## Tư liệu riêng theo vai`,
+        ``,
+        ...privateSources.map(([roleId, srcs]) => `- **${nameOf(roleId)}**: ${srcs.join(", ")}`),
+        ``,
+        `_(nội dung các tư liệu này không nằm trong biên bản chung; chỉ vai tương ứng đọc được)_`,
+      ].join("\n"),
+    );
   }
 
   /** Run one seat, parse its routed questions, and record the turn in both views. */
@@ -145,11 +178,17 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
     phase: Phase,
     extra: { round?: number; myInbox?: Question[]; transcript?: string; verdict?: string },
   ): Promise<Turn> => {
+    // `material` (shared) is only attached to the OPENING turn: from the first
+    // cross-examination round onward it is already inside the transcript snapshot, and
+    // sending it twice would pay for the same tokens on every later turn.
+    const sharedForTurn = phase === "opening" ? material?.shared : undefined;
+    const privateForTurn = material?.byRole?.[seat.role.id];
     const prompt = buildPrompt({
       role: seat.role,
       phase,
       topic,
-      ...(material && { material }),
+      ...(sharedForTurn && { material: sharedForTurn }),
+      ...(privateForTurn && { privateMaterial: privateForTurn }),
       ...(extra.transcript !== undefined && { transcript: extra.transcript }),
       ...(extra.myInbox && { inbox: extra.myInbox }),
       ...(extra.verdict !== undefined && { verdict: extra.verdict }),

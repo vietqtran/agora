@@ -62,6 +62,8 @@ export type RunMeta = {
   cast: Binding[];
   warnings: string[];
   repoPath?: string;
+  /** roleId → private source names, so a reader knows who argued from what. */
+  privateMaterial?: Record<string, string[]>;
 };
 
 /** Write every artifact the run produced. Returns the files actually written. */

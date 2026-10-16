@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { all, bool, num, one, parseArgs, pins, rounds, ROUND_PRESETS } from "../src/args.ts";
+import { splitMaterialRef } from "../src/material.ts";
 
 test("a bare topic implies the debate command, so the common case needs no subcommand", () => {
   const p = parseArgs(["Phần mềm ERP cần gì?"]);
@@ -87,4 +88,18 @@ test("num rejects non-numeric values", () => {
 
 test("the last occurrence of a single-value flag wins", () => {
   assert.equal(one(parseArgs(["--lang", "en", "--lang", "vi"]), "lang"), "vi");
+});
+
+test("a -m prefix is a role only when it names a role in this debate", () => {
+  const roles = new Set(["architect", "domain-expert"]);
+  assert.deepEqual(splitMaterialRef("domain-expert:./quy-trinh.md", roles), {
+    role: "domain-expert",
+    ref: "./quy-trinh.md",
+  });
+  // A URL must survive: "https" is not a role, so the colon is part of the path.
+  assert.deepEqual(splitMaterialRef("https://example.com/a", roles), { ref: "https://example.com/a" });
+  // An unknown prefix is a path, not a typo'd role — guessing would hide the file.
+  assert.deepEqual(splitMaterialRef("legal:./x.md", roles), { ref: "legal:./x.md" });
+  assert.deepEqual(splitMaterialRef("./plain.md", roles), { ref: "./plain.md" });
+  assert.deepEqual(splitMaterialRef("ARCHITECT:./x.md", roles), { role: "architect", ref: "./x.md" });
 });

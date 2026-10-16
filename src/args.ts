@@ -155,7 +155,9 @@ CÁCH DÙNG
 
 TUỲ CHỌN CHO debate
   -f, --file <path>        đọc chủ đề từ file (dùng cho chủ đề dài)
-  -m, --material <path>    thêm tư liệu nền (lặp lại được; file hoặc URL)
+  -m, --material <path>    tư liệu nền cho MỌI vai (lặp lại được; file hoặc URL)
+  -m <vai>:<path>          tư liệu RIÊNG chỉ một vai đọc được, vd.
+                             -m domain-expert:./quy-trinh.md -m architect:./schema.sql
       --roles a,b,c        chọn các vai tham gia (mặc định theo cấu hình)
       --judge <role|none>  vai chủ tọa, hoặc none để bỏ phán quyết
       --pin role=provider  ghim một vai vào một runtime cụ thể (lặp lại được)
