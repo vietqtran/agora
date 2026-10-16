@@ -47,8 +47,21 @@ export type Material = {
 export type DebateEvent =
   | { type: "phase"; phase: Phase; round?: number; detail: string }
   | { type: "turn-start"; roleId: string; label: string }
-  | { type: "turn-end"; roleId: string; label: string; ok: boolean; ms: number; detail: string }
-  | { type: "questions"; log: string }
+  | {
+      type: "turn-end";
+      roleId: string;
+      label: string;
+      ok: boolean;
+      ms: number;
+      detail: string;
+      // Structured alongside `detail`: a terminal wants one line, a UI wants to draw
+      // a card. Deriving either from the other's format is how display logic rots.
+      chars?: number;
+      questionsAsked?: number;
+      kind?: string;
+      costUsd?: number;
+    }
+  | { type: "questions"; log: string; items: Question[] }
   | { type: "warn"; message: string };
 
 export type DebateInput = {
@@ -235,6 +248,10 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
       detail: run.outcome.ok
         ? `${run.outcome.text.length} ký tự, ${parsed.questions.length} câu hỏi`
         : `${run.outcome.kind}: ${run.outcome.error.slice(0, 120)}`,
+      ...(run.outcome.ok
+        ? { chars: run.outcome.text.length, questionsAsked: parsed.questions.length }
+        : { kind: run.outcome.kind }),
+      ...(run.outcome.costUsd !== undefined && { costUsd: run.outcome.costUsd }),
     });
     return turn;
   };
@@ -279,7 +296,7 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
   for (let round = 1; round <= rounds; round++) {
     const log = renderQuestionLog(pending, nameOf);
     if (log) {
-      emit({ type: "questions", log });
+      emit({ type: "questions", log, items: pending });
       artifact.push([`### Câu hỏi được chuyển tới vòng ${round}`, ``, log].join("\n"));
     }
     emit({ type: "phase", phase: "cross-exam", round, detail: `${pending.length} câu hỏi được chuyển tiếp` });

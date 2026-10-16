@@ -33,7 +33,7 @@ const ALIASES: Record<string, string> = {
   q: "quiet",
 };
 
-export const KNOWN_COMMANDS = ["debate", "doctor", "roles", "init", "help"] as const;
+export const KNOWN_COMMANDS = ["debate", "doctor", "roles", "init", "serve", "help"] as const;
 
 export function parseArgs(argv: string[]): Parsed {
   const flags = new Map<string, string[]>();
@@ -152,6 +152,7 @@ CÁCH DÙNG
   agora doctor [--health]             xem máy này chạy được những CLI nào
   agora roles                         liệt kê các vai chuyên gia
   agora init [--force]                sinh agora.config.json theo máy hiện tại
+  agora serve [--port N] [--host H]   mở UI trên trình duyệt để xem pipeline
 
 TUỲ CHỌN CHO debate
   -f, --file <path>        đọc chủ đề từ file (dùng cho chủ đề dài)
@@ -173,9 +174,17 @@ TUỲ CHỌN CHO debate
       --json               in kết quả dạng JSON ra stdout
   -q, --quiet              bớt log tiến trình
 
+TUỲ CHỌN CHO serve
+      --port <n>           cổng (mặc định 7777)
+      --host <addr>        địa chỉ bind (mặc định 127.0.0.1 — chỉ máy này truy cập)
+      --token <str>        token truy cập; BẮT BUỘC khi --host không phải localhost
+                             (không truyền thì tự sinh và in ra)
+
 VÍ DỤ
   agora doctor --health
   agora --dry-run "Phần mềm quản lý tiến độ thi công cần những chức năng gì?"
   agora "Thiết kế module quản lý khối lượng cho ERP xây dựng" --rounds 3
   agora -f ./brief.md -m ./quy-trinh-hien-tai.md --pin domain-expert=antigravity
+  agora serve                                  # UI tại http://127.0.0.1:7777
+  agora serve --host 0.0.0.0 --port 8080       # mở ra ngoài, tự sinh token
 `;

@@ -6,3 +6,7 @@ runs/
 node_modules/
 *.log
 .DS_Store
+
+# browser-test artifacts
+.playwright-mcp/
+*.png

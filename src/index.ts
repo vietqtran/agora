@@ -17,6 +17,8 @@ import { buildAgent, providerDef } from "./providers/registry.ts";
 import { runDebate, type DebateEvent, type Seat } from "./debate.ts";
 import { loadMaterial } from "./material.ts";
 import { createRunDir, writeRun } from "./store.ts";
+import { RunManager } from "./runner.ts";
+import { isLoopback, resolveToken, serve } from "./server.ts";
 import { summarizeCost } from "./transcript.ts";
 
 const VERSION = "0.1.0";
@@ -436,6 +438,62 @@ async function cmdDebate(p: Parsed): Promise<number> {
   return cost.failed > 0 && cost.ok === 0 ? 1 : 0;
 }
 
+async function cmdServe(p: Parsed): Promise<number> {
+  const { config, sources } = await loadConfig(one(p, "config"));
+  const cfg = applyFlags(config, p);
+  const roles = await loadRoles();
+  const host = one(p, "host") ?? "127.0.0.1";
+  const port = num(p, "port") ?? 7777;
+  const tokenArg = one(p, "token");
+
+  const pinnedBins: Record<string, string> = {};
+  for (const [key, spec] of Object.entries(cfg.providers)) if (spec.bin) pinnedBins[key] = spec.bin;
+
+  const { token, generated } = resolveToken({ host, port, ...(tokenArg && { token: tokenArg }) });
+  const running = await serve(
+    {
+      config: cfg,
+      roles,
+      discover: () => discover(pinnedBins),
+      toAvailable: (ps) => toAvailable(ps, cfg),
+      runs: new RunManager(),
+    },
+    { host, port, ...(token && { token }) },
+  );
+
+  log(c.bold("agora serve"));
+  log(c.dim(`cấu hình: ${sources.join(" → ")}`));
+  log(`\n  ${c.green("▸")} ${c.bold(running.url)}`);
+  if (token) {
+    log(`  ${c.yellow("token:")} ${token}`);
+    if (generated) {
+      // Say why, not just what: a token nobody understands gets pasted into a chat
+      // log, and this one is a key to the operator's model quota.
+      log(
+        c.dim(
+          `  (tự sinh vì bạn bind ra ngoài localhost — bất kỳ ai mở được cổng này đều có thể\n` +
+            `   tiêu quota model của bạn và cho agent đọc file trên máy, nên cần token)`,
+        ),
+      );
+    }
+    log(c.dim(`  mở: ${running.url}  rồi dán token vào ô hiện ra`));
+  } else if (isLoopback(host)) {
+    log(c.dim(`  chỉ máy này truy cập được. Mở ra ngoài: --host 0.0.0.0 (sẽ tự sinh token)`));
+  }
+  log(c.dim(`\n  Ctrl-C để dừng.`));
+
+  // Hold the process open; the HTTP server owns the lifetime from here.
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      log(c.dim("\nđang dừng…"));
+      void running.close().then(resolve);
+    };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
+  return 0;
+}
+
 // --- dispatch -----------------------------------------------------------------------
 
 async function main(argv: string[]): Promise<number> {
@@ -460,6 +518,7 @@ async function main(argv: string[]): Promise<number> {
     if (p.command === "doctor") return await cmdDoctor(p);
     if (p.command === "roles") return await cmdRoles(p);
     if (p.command === "init") return await cmdInit(p);
+    if (p.command === "serve") return await cmdServe(p);
     return await cmdDebate(p);
   } catch (e) {
     log(c.red(`\nlỗi: ${(e as Error).message}`));

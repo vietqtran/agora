@@ -60,6 +60,38 @@ agora -f ./brief.md -m ./quy-trinh-hien-tai.md -m https://example.com/tieu-chuan
 
 `stdout` là **hồ sơ kết quả**, `stderr` là tiến trình — nên `agora "..." > ho-so.md` dùng được ngay.
 
+## Giao diện web
+
+```bash
+agora serve                               # http://127.0.0.1:7777 — chỉ máy này vào được
+agora serve --host 0.0.0.0 --port 8080    # mở ra ngoài; tự sinh token và in ra terminal
+```
+
+Dùng để: xem **pipeline tranh luận chạy trực tiếp**, chọn CLI + model + effort cho từng vai,
+dán tư liệu riêng cho từng vai, và đọc lại các phiên trước.
+
+Màn hình trái là thiết lập: chủ đề, chọn agent tham gia, mỗi agent có dropdown chọn runtime
+(chỉ hiện CLI thực có trên máy), ô nhập model, chọn effort, và một khối gập để dán **tư liệu
+riêng**. Dưới cùng là ước lượng số lượt gọi CLI trước khi bạn bấm chạy — vì chi phí tăng theo
+`số agent × (1 + số vòng)`.
+
+Màn hình phải là pipeline dọc theo thời gian thật: từng pha (mở đầu → chất vấn vòng N →
+phán quyết → tổng hợp), trong mỗi pha là từng agent với trạng thái đang chạy / xong / lỗi,
+thời gian, số ký tự, số câu hỏi. Giữa các pha hiện **các câu hỏi được định tuyến**
+(`A → B: câu hỏi`) — đây là thứ đáng xem nhất, vì nó cho thấy các agent có thực sự đối chất
+hay chỉ nói song song. Xong phiên thì có tab Hồ sơ / Phán quyết / Biên bản / Dữ liệu phiên.
+
+**Về bảo mật.** Ai vào được cổng này thì tiêu được quota model của bạn và bắt server đọc file
+trên máy làm tư liệu. Nên mặc định chỉ bind `127.0.0.1`; bind ra ngoài thì **buộc có token**
+— tool tự sinh nếu bạn không truyền `--token`. Cách an toàn nhất khi server ở xa là không mở
+cổng mà forward qua SSH:
+
+```bash
+ssh -L 7777:127.0.0.1:7777 user@server    # rồi chạy `agora serve` trên server
+```
+
+Không có bước build, không có dependency: một file HTML tĩnh và `node:http` + SSE.
+
 ## Giao thức tranh luận
 
 ```
@@ -292,7 +324,7 @@ lỗi riêng nó.
 
 ## Giới hạn cần biết
 
-- **Đã kiểm chứng tới đâu.** 162 test chạy trên **CLI giả**, không cần cài agent nào.
+- **Đã kiểm chứng tới đâu.** 178 test chạy trên **CLI giả**, không cần cài agent nào.
   Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
   thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
   việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
@@ -312,7 +344,7 @@ lỗi riêng nó.
 ## Phát triển
 
 ```bash
-npm test             # 162 test, không cần CLI nào
+npm test             # 178 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

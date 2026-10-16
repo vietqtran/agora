@@ -95,3 +95,47 @@ export function splitMaterialRef(raw: string, knownRoles: Set<string>): { role?:
   if (m && knownRoles.has(m[1].toLowerCase())) return { role: m[1].toLowerCase(), ref: m[2] };
   return { ref: raw };
 }
+
+/** One pasted document from the UI. `role` undefined = everyone reads it. */
+export type TextMaterial = { role?: string; label: string; text: string };
+
+/**
+ * Build Material from text pasted into a UI rather than read off disk.
+ *
+ * Runs the SAME redaction and injection scan as the file path — a document pasted into
+ * a browser is no less likely to carry a live credential than one on disk, and skipping
+ * the guards here would make the UI the soft way around them.
+ */
+export function materialFromText(entries: TextMaterial[], report: MaterialReport = {}): Material | undefined {
+  if (entries.length === 0) return undefined;
+  const shared: string[] = [];
+  const byRole: Record<string, string[]> = {};
+  const sources: Record<string, string[]> = {};
+
+  for (const entry of entries) {
+    if (!entry.text.trim()) continue;
+    const { text, redactions } = redactSecrets(entry.text);
+    if (redactions.length) {
+      report.warn?.(`đã che thông tin bí mật trong "${entry.label}": ${redactions.map((r) => `${r.kind}×${r.count}`).join(", ")}`);
+    }
+    const hits = scanInjection(text);
+    if (hits.length) {
+      report.warn?.(`"${entry.label}" có ${hits.length} dấu hiệu prompt-injection — đã cảnh báo cho agent`);
+    }
+    const block = `### ${entry.label}\n\n${text}${injectionNotice(hits)}`;
+    if (entry.role) {
+      (byRole[entry.role] ??= []).push(block);
+      (sources[entry.role] ??= []).push(entry.label);
+    } else {
+      shared.push(block);
+    }
+  }
+
+  return {
+    ...(shared.length && { shared: shared.join("\n\n") }),
+    ...(Object.keys(byRole).length && {
+      byRole: Object.fromEntries(Object.entries(byRole).map(([k, v]) => [k, v.join("\n\n")])),
+      sources,
+    }),
+  };
+}

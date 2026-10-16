@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>agora — hội đồng chuyên gia</title>
+<!-- Inline so the page never emits a 404 for a file this project does not ship. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='10' cy='12' r='5' fill='%236ea8fe'/%3E%3Ccircle cx='22' cy='12' r='5' fill='%234ec9a0'/%3E%3Cpath d='M8 23h16' stroke='%239aa3b2' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E" />
+<style>
+  /* No build step and no framework, to keep the project's zero-dependency promise.
+     Colours are defined once here; both themes come from the same tokens. */
+  :root {
+    --bg: #0f1115; --panel: #161920; --panel-2: #1c2029; --line: #272c37;
+    --ink: #e6e8ee; --ink-dim: #9aa3b2; --ink-faint: #6b7483;
+    --accent: #6ea8fe; --ok: #4ec9a0; --warn: #e0b341; --bad: #f2777a;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f0f2f5; --line: #dfe3ea;
+      --ink: #1a1d24; --ink-dim: #596273; --ink-faint: #8b93a3;
+      --accent: #2563eb; --ok: #13795b; --warn: #8a6100; --bad: #b4232a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+    border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: .01em; }
+  header .sub { color: var(--ink-faint); font-size: 12px; }
+  .spacer { flex: 1; }
+  .layout { display: grid; grid-template-columns: minmax(340px, 420px) 1fr; gap: 0; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .col { padding: 18px; }
+  .col.left { border-right: 1px solid var(--line); }
+  @media (max-width: 900px) { .col.left { border-right: 0; border-bottom: 1px solid var(--line); } }
+
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint);
+       margin: 22px 0 10px; font-weight: 650; }
+  h2:first-child { margin-top: 0; }
+
+  label { display: block; font-size: 12px; color: var(--ink-dim); margin-bottom: 5px; }
+  textarea, input[type=text], select {
+    width: 100%; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px;
+  }
+  textarea { resize: vertical; min-height: 64px; font-family: inherit; }
+  select { appearance: none; background-image: none; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; min-width: 0; }
+  .field { margin-bottom: 12px; }
+
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--ink-dim); border: 1px solid var(--line); font-weight: 500; }
+  button.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-faint); }
+  .btn-sm { padding: 4px 9px; font-size: 12px; }
+
+  .agent {
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
+    margin-bottom: 8px; background: var(--panel);
+  }
+  .agent.off { opacity: .5; }
+  .agent-head { display: flex; align-items: center; gap: 8px; }
+  .agent-head .nm { font-weight: 600; font-size: 13px; }
+  .agent-head .tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 99px; border: 1px solid var(--line);
+    color: var(--ink-faint); text-transform: uppercase; letter-spacing: .05em;
+  }
+  .agent-sum { color: var(--ink-faint); font-size: 12px; margin: 2px 0 0 24px; }
+  .agent-body { margin-top: 10px; display: grid; gap: 8px; }
+  details.ctx > summary {
+    cursor: pointer; font-size: 12px; color: var(--ink-dim); list-style: none;
+    padding: 3px 0; user-select: none;
+  }
+  details.ctx > summary::before { content: "▸ "; color: var(--ink-faint); }
+  details.ctx[open] > summary::before { content: "▾ "; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
+  .muted { color: var(--ink-faint); }
+  .warnbox { border-left: 3px solid var(--warn); background: var(--panel); padding: 8px 12px; border-radius: 0 8px 8px 0;
+             margin-bottom: 8px; font-size: 13px; color: var(--ink-dim); }
+  .errbox { border-left-color: var(--bad); }
+
+  /* ---- pipeline ---- */
+  .phase { position: relative; padding-left: 20px; margin-bottom: 4px; }
+  .phase::before {
+    content: ""; position: absolute; left: 5px; top: 22px; bottom: -4px; width: 2px; background: var(--line);
+  }
+  .phase:last-child::before { display: none; }
+  .phase > .dot {
+    position: absolute; left: 0; top: 7px; width: 12px; height: 12px; border-radius: 99px;
+    background: var(--panel); border: 2px solid var(--line);
+  }
+  .phase.active > .dot { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .phase.done > .dot { border-color: var(--ok); background: var(--ok); }
+  .phase-title { font-weight: 650; font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
+  .phase-title .det { font-weight: 400; color: var(--ink-faint); font-size: 12px; }
+  .seats { display: grid; gap: 6px; margin: 8px 0 14px; }
+  .seat {
+    display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 11px; font-size: 13px;
+  }
+  .seat .ic { width: 15px; text-align: center; flex: none; font-size: 12px; }
+  .seat.run { border-color: var(--accent); }
+  .seat.ok .ic { color: var(--ok); }
+  .seat.fail { border-color: var(--bad); }
+  .seat.fail .ic { color: var(--bad); }
+  .seat .who { font-weight: 550; }
+  .seat .rt { color: var(--ink-faint); font-size: 12px; }
+  .seat .stats { margin-left: auto; color: var(--ink-faint); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .seat.run .stats { color: var(--accent); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+  .seat.run .ic { animation: pulse 1.2s ease-in-out infinite; color: var(--accent); }
+
+  .qflow { margin: 0 0 14px; display: grid; gap: 5px; }
+  .q {
+    font-size: 12.5px; background: var(--panel-2); border-radius: 8px; padding: 7px 10px;
+    border-left: 2px solid var(--accent);
+  }
+  .q .arrow { color: var(--ink-faint); font-weight: 600; }
+  .q .from { color: var(--accent); font-weight: 600; }
+  .q .to { color: var(--ink); font-weight: 600; }
+
+  /* ---- results ---- */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
+  .tabs button {
+    background: transparent; color: var(--ink-dim); border: 0; border-bottom: 2px solid transparent;
+    border-radius: 0; padding: 7px 11px; font-weight: 550; font-size: 13px;
+  }
+  .tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); }
+  pre.doc {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 14px;
+    white-space: pre-wrap; word-break: break-word; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    max-height: 62vh; overflow: auto; margin: 0;
+  }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-dim); }
+  .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+  .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+  .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+  .runs { display: grid; gap: 5px; }
+  .runs button {
+    text-align: left; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    font-weight: 500; font-size: 12.5px; padding: 7px 10px; display: flex; gap: 8px; align-items: center;
+  }
+  .runs button .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>agora</h1>
+  <span class="sub">hội đồng chuyên gia trên các CLI bạn đang có</span>
+  <span class="spacer"></span>
+  <span id="conn" class="pill">đang kết nối…</span>
+</header>
+
+<div id="tokenGate" class="col" hidden>
+  <div class="panel" style="max-width:460px">
+    <h2 style="margin-top:0">Cần token</h2>
+    <p class="muted" style="font-size:13px">
+      Server đang mở ra ngoài localhost nên bắt buộc có token. Token được in ở terminal khi bạn chạy
+      <code>agora serve</code>.
+    </p>
+    <div class="field"><input type="text" id="tokenInput" placeholder="dán token vào đây" /></div>
+    <button id="tokenSave">Lưu</button>
+  </div>
+</div>
+
+<div class="layout" id="main" hidden>
+  <!-- ================= SETUP ================= -->
+  <div class="col left">
+    <h2>Chủ đề tranh luận</h2>
+    <div class="field">
+      <textarea id="topic" rows="4" placeholder="Ví dụ: Module quản lý khối lượng cho ERP xây dựng cần những chức năng gì, và mô hình dữ liệu nào chịu được sửa hồi tố?"></textarea>
+    </div>
+
+    <div class="field">
+      <details class="ctx">
+        <summary>Tư liệu nền chung — mọi agent đều đọc</summary>
+        <textarea id="sharedCtx" rows="4" placeholder="Bối cảnh doanh nghiệp, ràng buộc, mục tiêu…"></textarea>
+      </details>
+    </div>
+
+    <h2>Agent tham gia</h2>
+    <div id="agents"></div>
+
+    <h2>Thiết lập phiên</h2>
+    <div class="row field">
+      <div>
+        <label for="rounds">Số vòng chất vấn</label>
+        <select id="rounds">
+          <option value="0">0 — chỉ phát biểu</option>
+          <option value="1">1 — nhanh</option>
+          <option value="2" selected>2 — chuẩn</option>
+          <option value="4">4 — sâu</option>
+        </select>
+      </div>
+      <div>
+        <label for="lang">Ngôn ngữ</label>
+        <select id="lang">
+          <option value="vi" selected>Tiếng Việt</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="zh">中文</option>
+        </select>
+      </div>
+    </div>
+    <div class="row field">
+      <div>
+        <label for="judge">Chủ tọa</label>
+        <select id="judge"></select>
+      </div>
+      <div>
+        <label for="repoPath">Repo cho agent đọc (tuỳ chọn)</label>
+        <input type="text" id="repoPath" placeholder="/đường/dẫn/repo" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <button id="start">Bắt đầu tranh luận</button>
+      <button id="refresh" class="ghost" style="flex:0 0 auto">Dò lại CLI</button>
+    </div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0" id="costNote"></p>
+
+    <h2>Phiên trước</h2>
+    <div class="runs" id="runList"><span class="muted" style="font-size:12.5px">chưa có phiên nào</span></div>
+  </div>
+
+  <!-- ================= LIVE + RESULT ================= -->
+  <div class="col">
+    <div id="castBox" class="panel" hidden></div>
+    <div id="warns"></div>
+
+    <h2>Tiến trình</h2>
+    <div id="pipeline"><p class="muted" style="font-size:13px">Chưa có phiên nào đang chạy. Nhập chủ đề, chọn agent rồi bấm <strong>Bắt đầu tranh luận</strong>.</p></div>
+
+    <div id="resultBox" hidden>
+      <h2>Kết quả</h2>
+      <div class="tabs" id="tabs"></div>
+      <pre class="doc" id="docView"></pre>
+      <div class="row" style="margin-top:10px;justify-content:flex-start">
+        <button class="ghost btn-sm" style="flex:0 0 auto" id="copyDoc">Copy</button>
+        <span class="spacer"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// ---------------------------------------------------------------------------
+// Plain ES module, no bundler. State is a single object; every change re-renders
+// the part that owns it. At this size that is simpler to follow — and to debug in
+// a browser with no source maps — than any reactive abstraction.
+// ---------------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+};
+
+const state = {
+  token: localStorage.getItem("agora_token") || "",
+  providers: [], roles: [], defaults: null,
+  enabled: new Set(), seats: {}, ctx: {},
+  runId: null, phases: [], roleName: {}, roleProvider: {},
+  result: null, tab: "dossier", docs: {},
+};
+
+const PHASE_LABEL = { opening: "Mở đầu", "cross-exam": "Chất vấn", verdict: "Phán quyết", synthesis: "Tổng hợp" };
+// Suggestions only. The model list is never a hard constraint — a new model must be
+// usable the day it ships, without waiting for this file to be updated.
+const MODEL_HINTS = {
+  claude: ["sonnet", "opus", "haiku"],
+  codex: ["gpt-5.6-sol", "gpt-5.5", "o3"],
+  antigravity: ["Gemini 3.5 Flash (High)", "Gemini 3.5 Pro"],
+  gemini: ["auto", "pro", "flash"],
+};
+const EFFORTS = ["", "low", "medium", "high", "xhigh"];
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (state.token) headers.authorization = `Bearer ${state.token}`;
+  if (opts.body) headers["content-type"] = "application/json";
+  const res = await fetch(path, { ...opts, headers });
+  const text = await res.text();
+  const data = text && res.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text;
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function setConn(label, kind) {
+  const n = $("conn");
+  n.textContent = label;
+  n.className = `pill ${kind || ""}`;
+}
+
+// ---------- setup form ----------
+function renderAgents() {
+  const box = $("agents");
+  box.replaceChildren();
+  const debaters = state.roles.filter((r) => r.kind === "debater");
+
+  for (const role of debaters) {
+    const on = state.enabled.has(role.id);
+    const card = el("div", `agent${on ? "" : " off"}`);
+
+    const head = el("div", "agent-head");
+    const cb = el("input");
+    cb.type = "checkbox";
+    cb.checked = on;
+    cb.id = `en-${role.id}`;
+    cb.addEventListener("change", () => {
+      cb.checked ? state.enabled.add(role.id) : state.enabled.delete(role.id);
+      renderAgents();
+    });
+    head.append(cb, el("span", "nm", role.name));
+    for (const need of role.needs) head.append(el("span", "tag", `cần ${need}`));
+    card.append(head);
+    if (role.summary) card.append(el("div", "agent-sum", role.summary));
+
+    if (on) {
+      const body = el("div", "agent-body");
+
+      // Provider: only runtimes that are actually installed are offered. "tự chọn"
+      // hands the decision back to the caster, which is the right default.
+      const prow = el("div", "row");
+      const pwrap = el("div");
+      pwrap.append(el("label", null, "Chạy trên"));
+      const psel = el("select");
+      const auto = el("option", null, "tự chọn theo ưu tiên của vai");
+      auto.value = "";
+      psel.append(auto);
+      for (const p of state.providers.filter((x) => x.available)) {
+        const o = el("option", null, p.label + (p.version ? ` — ${p.version}` : ""));
+        o.value = p.key;
+        psel.append(o);
+      }
+      psel.value = state.seats[role.id]?.provider || "";
+      psel.addEventListener("change", () => {
+        state.seats[role.id] = { ...(state.seats[role.id] || {}), provider: psel.value };
+        renderAgents();
+      });
+      pwrap.append(psel);
+
+      const mwrap = el("div");
+      mwrap.append(el("label", null, "Model"));
+      const minput = el("input");
+      minput.type = "text";
+      minput.placeholder = "mặc định";
+      minput.setAttribute("list", `models-${role.id}`);
+      minput.value = state.seats[role.id]?.model || "";
+      minput.addEventListener("input", () => {
+        state.seats[role.id] = { ...(state.seats[role.id] || {}), model: minput.value };
+      });
+      const dl = el("datalist");
+      dl.id = `models-${role.id}`;
+      const chosen = state.seats[role.id]?.provider;
+      const hints = chosen ? MODEL_HINTS[chosen] || [] : Object.values(MODEL_HINTS).flat();
+      for (const h of hints) {
+        const o = el("option");
+        o.value = h;
+        dl.append(o);
+      }
+      mwrap.append(minput, dl);
+
+      const ewrap = el("div");
+      ewrap.append(el("label", null, "Effort"));
+      const esel = el("select");
+      for (const e of EFFORTS) {
+        const o = el("option", null, e || "mặc định");
+        o.value = e;
+        esel.append(o);
+      }
+      esel.value = state.seats[role.id]?.effort || "";
+      esel.addEventListener("change", () => {
+        state.seats[role.id] = { ...(state.seats[role.id] || {}), effort: esel.value };
+      });
+      ewrap.append(esel);
+
+      prow.append(pwrap, mwrap, ewrap);
+      body.append(prow);
+
+      const det = el("details", "ctx");
+      const sum = el("summary", null, `Tư liệu riêng — chỉ ${role.name} đọc được`);
+      const ta = el("textarea");
+      ta.rows = 4;
+      ta.placeholder = "Dán tài liệu chỉ vai này được đọc: quy trình nghiệp vụ, schema hiện tại, quy ước code…";
+      ta.value = state.ctx[role.id] || "";
+      ta.addEventListener("input", () => { state.ctx[role.id] = ta.value; });
+      if (state.ctx[role.id]) det.open = true;
+      det.append(sum, ta);
+      body.append(det);
+      card.append(body);
+    }
+    box.append(card);
+  }
+  updateCostNote();
+}
+
+function updateCostNote() {
+  const seats = state.enabled.size;
+  const rounds = Number($("rounds").value);
+  const judge = $("judge").value ? 1 : 0;
+  // Turn count is exact; cost is not, because only Claude reports dollars.
+  const turns = seats * (1 + rounds) + judge * 2;
+  $("costNote").textContent = seats
+    ? `≈ ${turns} lượt gọi CLI (${seats} agent × ${1 + rounds} lượt${judge ? " + phán quyết + tổng hợp" : ""}). Mỗi lượt là một lần gọi model thật.`
+    : "Chọn ít nhất 1 agent. Cần ≥ 2 agent khác hãng để tranh luận thực sự độc lập.";
+}
+
+function renderJudge() {
+  const sel = $("judge");
+  sel.replaceChildren();
+  const none = el("option", null, "không có — dừng sau chất vấn");
+  none.value = "";
+  sel.append(none);
+  for (const r of state.roles.filter((x) => x.kind === "judge")) {
+    const o = el("option", null, r.name);
+    o.value = r.id;
+    sel.append(o);
+  }
+  sel.value = state.defaults?.judge || "";
+}
+
+// ---------- pipeline ----------
+function phaseKey(e) {
+  return e.phase === "cross-exam" ? `cross-exam:${e.round}` : e.phase;
+}
+
+function renderPipeline() {
+  const box = $("pipeline");
+  box.replaceChildren();
+  if (state.phases.length === 0) {
+    box.append(el("p", "muted", "Đang khởi tạo…"));
+    return;
+  }
+  for (const [i, ph] of state.phases.entries()) {
+    const isLast = i === state.phases.length - 1;
+    const allDone = ph.seats.length > 0 && ph.seats.every((s) => s.status !== "run");
+    const wrap = el("div", `phase ${allDone ? "done" : isLast ? "active" : "done"}`);
+    wrap.append(el("div", "dot"));
+
+    const title = el("div", "phase-title");
+    title.append(el("span", null, ph.label));
+    if (ph.detail) title.append(el("span", "det", ph.detail));
+    wrap.append(title);
+
+    const seats = el("div", "seats");
+    for (const s of ph.seats) {
+      const row = el("div", `seat ${s.status}`);
+      const icon = s.status === "run" ? "●" : s.status === "ok" ? "✓" : "✗";
+      row.append(el("span", "ic", icon));
+      row.append(el("span", "who", state.roleName[s.roleId] || s.roleId));
+      row.append(el("span", "rt", state.roleProvider[s.roleId] || ""));
+      const stats = el("span", "stats");
+      if (s.status === "run") stats.textContent = `${Math.round((Date.now() - s.t0) / 1000)}s…`;
+      else if (s.status === "ok") {
+        const bits = [fmtMs(s.ms)];
+        if (s.chars) bits.push(`${s.chars.toLocaleString("vi-VN")} ký tự`);
+        if (s.questionsAsked) bits.push(`${s.questionsAsked} câu hỏi`);
+        if (s.costUsd) bits.push(`$${s.costUsd.toFixed(4)}`);
+        stats.textContent = bits.join(" · ");
+      } else stats.textContent = s.detail || "lỗi";
+      row.append(stats);
+      seats.append(row);
+    }
+    wrap.append(seats);
+
+    if (ph.questions?.length) {
+      const qf = el("div", "qflow");
+      for (const q of ph.questions) {
+        const d = el("div", "q");
+        d.append(el("span", "from", state.roleName[q.from] || q.from));
+        d.append(el("span", "arrow", " → "));
+        d.append(el("span", "to", state.roleName[q.to] || q.to));
+        d.append(el("span", null, ": " + q.text));
+        qf.append(d);
+      }
+      wrap.append(qf);
+    }
+    box.append(wrap);
+  }
+}
+
+function fmtMs(ms) {
+  return ms >= 60000 ? `${(ms / 60000).toFixed(1)} phút` : `${Math.round(ms / 1000)}s`;
+}
+
+function currentPhase() {
+  return state.phases[state.phases.length - 1];
+}
+
+function onEvent(e) {
+  if (e.type === "phase") {
+    const label = e.phase === "cross-exam" ? `${PHASE_LABEL[e.phase]} vòng ${e.round}` : PHASE_LABEL[e.phase];
+    state.phases.push({ key: phaseKey(e), label, detail: e.detail, seats: [], questions: [] });
+  } else if (e.type === "turn-start") {
+    const ph = currentPhase();
+    if (ph) ph.seats.push({ roleId: e.roleId, status: "run", t0: Date.now() });
+  } else if (e.type === "turn-end") {
+    const ph = currentPhase();
+    const seat = ph?.seats.find((s) => s.roleId === e.roleId && s.status === "run");
+    if (seat) Object.assign(seat, { status: e.ok ? "ok" : "fail", ms: e.ms, chars: e.chars,
+      questionsAsked: e.questionsAsked, costUsd: e.costUsd, detail: e.detail });
+  } else if (e.type === "questions") {
+    // Questions are emitted at the START of the round that must answer them, so they
+    // belong to the phase that is about to run, not the one that produced them.
+    const ph = currentPhase();
+    if (ph) ph.questions = e.items || [];
+  } else if (e.type === "warn") {
+    const w = el("div", "warnbox");
+    w.textContent = "⚠ " + e.message;
+    $("warns").append(w);
+  }
+  renderPipeline();
+}
+
+// ---------- result ----------
+async function loadDoc(name) {
+  if (state.docs[name] !== undefined) return state.docs[name];
+  try {
+    state.docs[name] = await api(`/api/runs/${state.runId}/artifact?name=${encodeURIComponent(name)}`);
+  } catch (err) {
+    state.docs[name] = `(không đọc được ${name}: ${err.message})`;
+  }
+  return state.docs[name];
+}
+
+function renderResult(final) {
+  state.result = final;
+  const box = $("resultBox");
+  box.hidden = false;
+  const tabs = $("tabs");
+  tabs.replaceChildren();
+
+  const items = [];
+  if (final.dossier) items.push(["dossier.md", "Hồ sơ nghiên cứu"]);
+  if (final.verdictStatus) items.push(["verdict.md", "Phán quyết"]);
+  items.push(["transcript.md", "Biên bản đầy đủ"]);
+  items.push(["run.json", "Dữ liệu phiên"]);
+
+  const pick = async (name) => {
+    state.tab = name;
+    for (const b of tabs.children) b.setAttribute("aria-selected", String(b.dataset.name === name));
+    $("docView").textContent = "đang tải…";
+    $("docView").textContent = await loadDoc(name);
+  };
+  for (const [name, label] of items) {
+    const b = el("button", null, label);
+    b.dataset.name = name;
+    b.setAttribute("aria-selected", "false");
+    b.addEventListener("click", () => pick(name));
+    tabs.append(b);
+  }
+
+  const status = el("div", null);
+  if (final.aborted) {
+    const w = el("div", "warnbox errbox");
+    w.textContent = "Phiên bị huỷ: " + final.aborted;
+    $("warns").append(w);
+  }
+  if (final.verdictStatus === "NEEDS_INPUT") {
+    const w = el("div", "warnbox");
+    w.textContent = "Chủ tọa cần bạn trả lời các câu hỏi trong tab Phán quyết, rồi chạy lại phiên kèm câu trả lời làm tư liệu nền.";
+    $("warns").append(w);
+  }
+  if (final.cost) {
+    const c = final.cost;
+    const note = el("p", "muted");
+    note.style.fontSize = "12.5px";
+    note.textContent = `${c.ok} lượt OK${c.failed ? `, ${c.failed} lượt lỗi` : ""} · chi phí đã biết $${c.knownCostUsd.toFixed(4)}`
+      + (c.unpricedTurns ? ` (+${c.unpricedTurns} lượt chạy trên CLI không báo giá USD)` : "");
+    status.append(note);
+  }
+  box.prepend(status);
+  void pick(items[0][0]);
+  void loadRuns();
+}
+
+// ---------- run control ----------
+async function start() {
+  const topic = $("topic").value.trim();
+  if (!topic) { alert("Nhập chủ đề trước đã."); return; }
+  if (state.enabled.size === 0) { alert("Chọn ít nhất một agent."); return; }
+
+  $("start").disabled = true;
+  $("warns").replaceChildren();
+  $("resultBox").hidden = true;
+  state.phases = [];
+  state.docs = {};
+  renderPipeline();
+
+  const material = [];
+  const shared = $("sharedCtx").value.trim();
+  if (shared) material.push({ label: "Bối cảnh chung", text: shared });
+  for (const [roleId, text] of Object.entries(state.ctx)) {
+    if (text?.trim() && state.enabled.has(roleId)) {
+      material.push({ role: roleId, label: `Tư liệu riêng — ${state.roleName[roleId] || roleId}`, text });
+    }
+  }
+
+  const body = {
+    topic,
+    roles: [...state.enabled],
+    judge: $("judge").value || null,
+    rounds: Number($("rounds").value),
+    language: $("lang").value,
+    repoPath: $("repoPath").value.trim() || undefined,
+    seats: Object.fromEntries([...state.enabled].map((id) => [id, state.seats[id] || {}])),
+    material,
+  };
+
+  try {
+    const res = await api("/api/runs", { method: "POST", body: JSON.stringify(body) });
+    state.runId = res.id;
+    showCast(res.cast);
+    for (const w of res.warnings || []) {
+      const n = el("div", "warnbox");
+      n.textContent = "⚠ " + w;
+      $("warns").append(n);
+    }
+    follow(res.id);
+  } catch (err) {
+    $("start").disabled = false;
+    const n = el("div", "warnbox errbox");
+    n.textContent = "Không bắt đầu được: " + err.message;
+    $("warns").append(n);
+  }
+}
+
+function showCast(cast) {
+  const box = $("castBox");
+  box.hidden = false;
+  box.replaceChildren();
+  box.append(el("h2", null, "Phân vai"));
+  state.roleProvider = {};
+  const rows = [...cast.debaters, ...(cast.judge ? [cast.judge] : [])];
+  for (const b of rows) {
+    state.roleName[b.roleId] = b.roleName;
+    state.roleProvider[b.roleId] = b.providerLabel;
+    const row = el("div", "seat " + (b.shared ? "" : "ok"));
+    row.append(el("span", "ic", b.shared ? "⚠" : "✓"));
+    row.append(el("span", "who", b.roleName));
+    row.append(el("span", "rt", b.providerLabel));
+    const tags = [];
+    if (b.grants?.web) tags.push("web");
+    if (b.grants?.execute) tags.push("shell");
+    if (b.shared) tags.push("dùng chung");
+    row.append(el("span", "stats", tags.join(" · ")));
+    box.append(row);
+  }
+  for (const u of cast.unfilled || []) {
+    const row = el("div", "seat fail");
+    row.append(el("span", "ic", "✗"));
+    row.append(el("span", "who", u.roleName));
+    row.append(el("span", "stats", u.reason));
+    box.append(row);
+  }
+}
+
+let es = null;
+let ticker = null;
+function follow(id) {
+  es?.close();
+  const q = state.token ? `?token=${encodeURIComponent(state.token)}` : "";
+  es = new EventSource(`/api/runs/${id}/events${q}`);
+  setConn("đang chạy", "warn");
+  // Keeps the running turn's elapsed counter moving between server events, which can
+  // be minutes apart while a model thinks.
+  ticker = setInterval(() => { if (currentPhase()?.seats.some((s) => s.status === "run")) renderPipeline(); }, 1000);
+
+  es.addEventListener("debate", (ev) => onEvent(JSON.parse(ev.data)));
+  es.addEventListener("final", (ev) => {
+    const final = JSON.parse(ev.data);
+    clearInterval(ticker);
+    es.close();
+    setConn(final.status === "done" ? "xong" : "lỗi", final.status === "done" ? "ok" : "bad");
+    $("start").disabled = false;
+    renderResult(final);
+  });
+  es.onerror = () => {
+    // EventSource retries on its own; only report once the run is actually settled.
+    if (es.readyState === EventSource.CLOSED) {
+      clearInterval(ticker);
+      $("start").disabled = false;
+      setConn("mất kết nối", "bad");
+    }
+  };
+}
+
+async function loadRuns() {
+  try {
+    const { runs } = await api("/api/runs");
+    const box = $("runList");
+    box.replaceChildren();
+    if (!runs.length) {
+      box.append(el("span", "muted", "chưa có phiên nào"));
+      return;
+    }
+    for (const r of runs.slice(0, 12)) {
+      const b = el("button");
+      const kind = r.status === "done" ? "ok" : r.status === "failed" ? "bad" : "warn";
+      b.append(el("span", `pill ${kind}`, r.status === "running" ? "đang chạy" : r.status === "done" ? "xong" : "lỗi"));
+      b.append(el("span", "t", r.topic));
+      b.addEventListener("click", async () => {
+        const { run } = await api(`/api/runs/${r.id}`);
+        state.runId = r.id;
+        state.phases = [];
+        state.docs = {};
+        $("warns").replaceChildren();
+        showCast(run.cast);
+        for (const e of run.events) onEvent(e);
+        if (run.status === "running") follow(r.id);
+        else renderResult(run);
+      });
+      box.append(b);
+    }
+  } catch { /* list is a convenience; never block the page on it */ }
+}
+
+async function boot() {
+  try {
+    const ping = await api("/api/ping");
+    if (ping.needsToken && !state.token) {
+      $("tokenGate").hidden = false;
+      setConn("cần token", "warn");
+      return;
+    }
+  } catch (err) {
+    setConn("không gọi được API", "bad");
+    return;
+  }
+  try {
+    const st = await api("/api/state");
+    state.providers = st.providers;
+    state.roles = st.roles;
+    state.defaults = st.defaults;
+    for (const r of st.roles) state.roleName[r.id] = r.name;
+    state.enabled = new Set(st.defaults.roles.filter((id) => st.roles.some((r) => r.id === id && r.kind === "debater")));
+    $("rounds").value = String(st.defaults.rounds);
+    $("lang").value = st.defaults.language;
+    renderJudge();
+    renderAgents();
+    $("main").hidden = false;
+    $("tokenGate").hidden = true;
+    const n = st.providers.filter((p) => p.available).length;
+    setConn(`${n} CLI khả dụng`, n >= 2 ? "ok" : "warn");
+    if (n === 0) {
+      const w = el("div", "warnbox errbox");
+      w.textContent = "Không tìm thấy agent CLI nào trên máy này. Cài claude / codex / agy rồi bấm “Dò lại CLI”.";
+      $("warns").append(w);
+    } else if (n === 1) {
+      const w = el("div", "warnbox");
+      w.textContent = "Chỉ có 1 CLI khả dụng — các vai sẽ dùng chung nó, nên tranh luận kém độc lập. Cài thêm một CLI khác hãng để có đối chất thật.";
+      $("warns").append(w);
+    }
+    void loadRuns();
+  } catch (err) {
+    if (/token/i.test(err.message)) {
+      $("tokenGate").hidden = false;
+      setConn("token sai", "bad");
+    } else setConn("lỗi: " + err.message, "bad");
+  }
+}
+
+$("tokenSave").addEventListener("click", () => {
+  state.token = $("tokenInput").value.trim();
+  localStorage.setItem("agora_token", state.token);
+  void boot();
+});
+$("start").addEventListener("click", () => void start());
+$("refresh").addEventListener("click", () => void boot());
+$("rounds").addEventListener("change", updateCostNote);
+$("judge").addEventListener("change", updateCostNote);
+$("copyDoc").addEventListener("click", () => navigator.clipboard?.writeText($("docView").textContent || ""));
+
+void boot();
+</script>
+</body>
+</html>
