@@ -10,7 +10,10 @@ import { customProvider, buildArgs, dotPath, extractText } from "../src/provider
 import { unsupportedFlag, flatten } from "../src/providers/argplan.ts";
 import { runCli } from "../src/spawn.ts";
 
-const FAKES = join(dirname(fileURLToPath(import.meta.url)), "fakes");
+// The fake CLIs live OUTSIDE test/ on purpose: Node's default test discovery
+// treats every file under a test/ directory as a test file, and one of these
+// fakes deliberately sleeps for two minutes.
+const FAKES = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "clis");
 const CWD = tmpdir();
 const fake = (n: string) => join(FAKES, n);
 

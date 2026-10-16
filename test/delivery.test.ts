@@ -7,7 +7,10 @@ import { deliverPrompt, isArgvTooLong, PROMPT_ARGV_LIMIT, STDIN_POINTER } from "
 import { claudeProvider } from "../src/providers/claude.ts";
 import { codexProvider } from "../src/providers/codex.ts";
 
-const FAKES = join(dirname(fileURLToPath(import.meta.url)), "fakes");
+// The fake CLIs live OUTSIDE test/ on purpose: Node's default test discovery
+// treats every file under a test/ directory as a test file, and one of these
+// fakes deliberately sleeps for two minutes.
+const FAKES = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "clis");
 const CWD = tmpdir();
 
 test("a small prompt stays on argv — the well-trodden path is unchanged", () => {

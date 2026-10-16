@@ -10,7 +10,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.ts",
     "doctor": "node src/index.ts doctor",
     "typecheck": "tsc --noEmit -p ."
   },
