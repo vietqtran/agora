@@ -213,7 +213,7 @@ Tool gửi tư liệu của bạn tới **2-3 nhà cung cấp khác nhau trong c
 ## Giới hạn cần biết
 
 - **Chưa được chạy thử với CLI thật.** Máy phát triển không có `claude`/`codex`/`agy` nào
-  được cài, nên 150 test chạy trên **CLI giả** mô phỏng đúng format output đã nghiên cứu.
+  được cài, nên 155 test chạy trên **CLI giả** mô phỏng đúng format output đã nghiên cứu.
   Mọi logic phân loại, định tuyến, phân vai, cô lập, timeout đều có test; nhưng **cờ dòng
   lệnh thật của từng phiên bản CLI thì chỉ `agora doctor --health` trên máy bạn mới xác nhận
   được**. Chạy lệnh đó trước khi tin kết quả. Nếu một cờ không được hỗ trợ, tầng
@@ -228,7 +228,7 @@ Tool gửi tư liệu của bạn tới **2-3 nhà cung cấp khác nhau trong c
 ## Phát triển
 
 ```bash
-npm test             # 150 test, không cần CLI nào
+npm test             # 155 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

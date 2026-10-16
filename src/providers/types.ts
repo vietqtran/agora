@@ -24,6 +24,7 @@ export type FailureKind =
   | "budget"
   | "not-runnable" // binary missing / shadowed shim — a setup problem
   | "auth" // CLI runs but is not logged in
+  | "model" // the requested model is not available to this account
   | "empty" // exit 0 with nothing usable
   | "other";
 
@@ -127,9 +128,45 @@ export function truncate(s: string, n: number): string {
   return t.length > n ? `${t.slice(0, n)}…` : t;
 }
 
-/** Classify a generic stderr/exit pair into a FailureKind. */
+/**
+ * Classify an error string into a FailureKind.
+ *
+ * Model errors are checked FIRST and deliberately: "The 'gpt-5.5' model is not supported
+ * when using Codex with a ChatGPT account" is an account/plan message, so a naive auth
+ * check claims it first and sends the user off to re-login — which fixes nothing. The
+ * two call for opposite actions, so the more specific pattern has to win.
+ */
 export function classify(stderr: string, fallback: FailureKind = "other"): FailureKind {
   const s = stderr.toLowerCase();
-  if (/not logged in|unauthenticated|unauthorized|login|auth/.test(s) && !/author/.test(s)) return "auth";
+  if (
+    /model .{0,40}(is not supported|not found|does not exist|is not available|no access)/.test(s) ||
+    /(unknown|invalid|unsupported) model/.test(s) ||
+    /model_not_found/.test(s)
+  ) {
+    return "model";
+  }
+  if (/not logged in|unauthenticated|unauthorized|session expired|please (log|sign) in|\blogin\b|\bauth\b/.test(s) && !/author/.test(s)) {
+    return "auth";
+  }
   return fallback;
+}
+
+/** What to actually do about a failure. Shown by `doctor` next to each failing runtime. */
+export function remedy(kind: FailureKind, providerKey: string, bin: string): string {
+  switch (kind) {
+    case "auth":
+      return `chạy \`${bin}\` trên máy này rồi đăng nhập (vd. /login), sau đó thử lại`;
+    case "model":
+      return `model đang yêu cầu không dùng được với tài khoản này — đặt "providers": { "${providerKey}": { "model": "<model hợp lệ>" } } trong agora.config.json`;
+    case "not-runnable":
+      return `binary không chạy được — kiểm tra PATH, hoặc ghim "providers": { "${providerKey}": { "bin": "/đường/dẫn/thật" } }`;
+    case "timeout":
+      return `tăng --timeout (phút), hoặc giảm --rounds / bớt tư liệu -m`;
+    case "budget":
+      return `tăng "maxBudgetUsd" cho ${providerKey} trong cấu hình`;
+    case "empty":
+      return `CLI chạy xong nhưng không trả về nội dung — chạy lại cùng lệnh thủ công để xem CLI nói gì`;
+    default:
+      return `chạy lại; nếu lặp lại, xem transcript.md để lấy nguyên văn lỗi`;
+  }
 }

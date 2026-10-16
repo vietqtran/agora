@@ -11,6 +11,7 @@ import { all, bool, HELP, num, one, parseArgs, pins, rounds as roundsFlag, type 
 import { DEFAULTS, loadConfig, projectConfigPath, specFor, type AgoraConfig } from "./config.ts";
 import { cast, type AvailableProvider, type Binding, type CastResult } from "./casting.ts";
 import { canary, discover, installHint, type Presence } from "./detect.ts";
+import { remedy } from "./providers/types.ts";
 import { loadRoles, type Role } from "./roles.ts";
 import { buildAgent, providerDef } from "./providers/registry.ts";
 import { runDebate, type DebateEvent, type Seat } from "./debate.ts";
@@ -189,16 +190,22 @@ async function cmdDoctor(p: Parsed): Promise<number> {
 
   log(c.bold("\n2. Runtime có trả lời được không") + c.dim("  (prompt canary thật, cần đã đăng nhập)"));
   const seats = [...result.debaters, ...(result.judge ? [result.judge] : [])];
-  // One canary per distinct runtime: two roles sharing a runtime share its health.
-  const unique = new Map(seats.map((b) => [b.provider, b]));
-  const healths = await Promise.all(
-    [...unique.values()].map((b) => canary(specFor(cfg, b.provider, b.roleId, b.grants, b.bin))),
-  );
+  // One canary per distinct (runtime, MODEL) pair — not merely per runtime. Roles pin
+  // different models on the same CLI (a strong judge over mid-tier debaters), and a
+  // model the account cannot use fails on its own. Deduping by runtime alone would
+  // health-check whichever seat happened to be last and call the rest fine.
+  const specs = new Map<string, ReturnType<typeof specFor>>();
+  for (const b of seats) {
+    const spec = specFor(cfg, b.provider, b.roleId, b.grants, b.bin);
+    specs.set(`${b.provider}::${spec.model ?? "(mặc định)"}`, spec);
+  }
+  const healths = await Promise.all([...specs.values()].map((spec) => canary(spec)));
   let bad = 0;
   for (const h of healths) {
     const mark = h.ok ? c.green("✓") : c.red("✗");
     if (!h.ok) bad++;
     log(`  ${mark} ${h.label.padEnd(26)} ${c.dim(fmtSecs(h.ms).padStart(5))}  ${h.ok ? c.dim(h.detail) : c.red(h.detail)}`);
+    if (!h.ok && h.kind) log(`      ${c.yellow("→ cách sửa: ")}${c.dim(remedy(h.kind, h.provider, h.bin))}`);
   }
   log(`\n${healths.length - bad}/${healths.length} runtime trả lời được — ${bad === 0 ? c.green("SẴN SÀNG") : c.red("CHƯA SẴN SÀNG")}`);
   return bad === 0 && result.unfilled.length === 0 ? 0 : 1;

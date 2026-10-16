@@ -19,7 +19,7 @@ import { access, mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DISCOVERABLE, providerDef, buildAgent } from "./providers/registry.ts";
-import type { Agent, ProviderDef, ProviderSpec } from "./providers/types.ts";
+import type { Agent, FailureKind, ProviderDef, ProviderSpec } from "./providers/types.ts";
 import { truncate } from "./providers/types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -140,6 +140,10 @@ export type Health = {
   ok: boolean;
   detail: string;
   ms: number;
+  /** Why it failed, so the caller can name the fix instead of just the symptom. */
+  kind?: FailureKind;
+  /** The binary that was tried, for the remediation message. */
+  bin: string;
 };
 
 /**
@@ -156,13 +160,23 @@ export async function canary(spec: ProviderSpec): Promise<Health> {
     return {
       provider: agent.provider,
       label: agent.label,
+      bin: agent.bin,
       ok: r.ok,
       detail: r.ok ? truncate(r.text, 80) || "(empty success)" : `${r.kind}: ${truncate(r.error, 100)}`,
+      ...(r.ok ? {} : { kind: r.kind }),
       ms: performance.now() - started,
     };
   } catch (e) {
     // A failure to even set up the run is still a doctor finding, not a crash.
-    return { provider: spec.provider, label: spec.provider, ok: false, detail: truncate(String(e), 120), ms: performance.now() - started };
+    return {
+      provider: spec.provider,
+      label: spec.provider,
+      bin: spec.bin ?? spec.provider,
+      ok: false,
+      detail: truncate(String(e), 120),
+      kind: "other",
+      ms: performance.now() - started,
+    };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

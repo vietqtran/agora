@@ -12,6 +12,12 @@ if (mode === "no-turn-completed") {
   say({ type: "item.completed", item: { type: "agent_message", text: "câu trả lời" } });
   process.exit(0);
 }
+if (mode === "model-rejected") {
+  // Verbatim shape from codex 0.145.0 when the account cannot use the pinned model.
+  say({ type: "item.completed", item: { type: "error", message: "Model metadata for `gpt-5.5` not found." } });
+  say({ type: "turn.failed", error: { message: "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}}" } });
+  process.exit(0);
+}
 if (mode === "error-event") {
   say({ type: "error", message: "stream broke" });
   process.exit(0);

@@ -8,6 +8,7 @@ import { codexProvider } from "../src/providers/codex.ts";
 import { geminiProvider, antigravityProvider } from "../src/providers/google.ts";
 import { customProvider, buildArgs, dotPath, extractText } from "../src/providers/custom.ts";
 import { unsupportedFlag, flatten } from "../src/providers/argplan.ts";
+import { classify, remedy } from "../src/providers/types.ts";
 import { runCli } from "../src/spawn.ts";
 
 // The fake CLIs live OUTSIDE test/ on purpose: Node's default test discovery
@@ -282,4 +283,49 @@ test("flatten can drop the optional groups", () => {
   const groups = [{ args: ["-p", "x"] }, { args: ["--nice"], optional: true }];
   assert.deepEqual(flatten(groups, true), ["-p", "x", "--nice"]);
   assert.deepEqual(flatten(groups, false), ["-p", "x"]);
+});
+
+// --- failure classification ---------------------------------------------------------
+// The strings below are VERBATIM from a real Ubuntu server running claude 2.1.292 and
+// codex 0.145.0. They are the reason this classifier exists: both failures look alike
+// from a distance and call for opposite fixes.
+
+test("a model/plan rejection is classified as model, not auth", () => {
+  // Real codex 0.145.0 output. A naive auth check claims this first (it contains
+  // "account") and sends the user to re-login, which fixes nothing at all.
+  const real = "The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.";
+  assert.equal(classify(real), "model");
+  assert.equal(classify("Model metadata for `gpt-5.1-codex` not found."), "model");
+  assert.equal(classify("model_not_found"), "model");
+  assert.equal(classify("unsupported model: foo"), "model");
+});
+
+test("an expired session is classified as auth", () => {
+  // Real claude 2.1.292 output.
+  const real = "Failed to authenticate: OAuth session expired and could not be refreshed";
+  assert.equal(classify(real), "auth");
+  assert.equal(classify("You are not logged in"), "auth");
+});
+
+test("ordinary content is not mistaken for either", () => {
+  assert.equal(classify("rate limit reached"), "other");
+  // "author" must not trip the auth pattern.
+  assert.equal(classify("the author of this model proposal"), "other");
+  assert.equal(classify("stream broke", "empty"), "empty");
+});
+
+test("every failure kind names an action, and the action differs by kind", () => {
+  const kinds = ["auth", "model", "not-runnable", "timeout", "budget", "empty", "other"] as const;
+  const messages = kinds.map((k) => remedy(k, "codex", "/usr/bin/codex"));
+  assert.equal(new Set(messages).size, kinds.length, "two kinds share a remedy");
+  assert.match(remedy("auth", "claude", "/usr/local/bin/claude"), /\/usr\/local\/bin\/claude/);
+  assert.match(remedy("model", "codex", "codex"), /providers/);
+  assert.match(remedy("not-runnable", "codex", "codex"), /PATH/);
+});
+
+test("codex surfaces a turn.failed model rejection as kind model", async () => {
+  // End-to-end through the adapter: the stream shape plus the classifier together.
+  const agent = codexProvider.make({ provider: "codex", bin: fake("fake-codex.mjs") });
+  const r = await withMode("model-rejected", () => agent.run("hỏi", CWD));
+  assert.ok(!r.ok && r.kind === "model", `expected model, got ${(r as { kind: string }).kind}`);
 });
