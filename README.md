@@ -210,14 +210,48 @@ Tool gửi tư liệu của bạn tới **2-3 nhà cung cấp khác nhau trong c
 - **Prompt dài tự chuyển sang stdin** (ngưỡng 96 KB), vì Linux giới hạn 1 tham số argv ở
   128 KB và argv hiện trong `ps` cho mọi user trên máy.
 
+## Xử lý sự cố
+
+Hai lỗi dưới đây gặp thật khi chạy trên Ubuntu 24.04 (claude 2.1.292, codex 0.145.0).
+Cả hai đều là lỗi **cấu hình máy**, không phải lỗi tool — nhưng chúng trông giống nhau
+từ xa và cần hai cách sửa trái ngược, nên `doctor --health` phân biệt rồi in thẳng cách sửa.
+
+**`auth: OAuth session expired and could not be refreshed`**
+CLI có đó nhưng chưa đăng nhập. Kiểm tra: `claude auth status` → `"loggedIn": false`.
+Sửa: chạy `claude` trên **đúng máy đó** rồi `/login`. Tool không quản lý đăng nhập.
+
+**`model: The '<model>' model is not supported when using Codex with a ChatGPT account`**
+`~/.codex/config.toml` đang ghim một model mà gói tài khoản không được dùng — `codex exec`
+của chính bạn cũng lỗi y vậy. Đừng sửa `config.toml` (ảnh hưởng mọi thứ khác), hãy ghi đè
+riêng cho agora:
+
+```json
+{ "providers": { "codex": { "model": "gpt-5.6-sol" } } }
+```
+
+**Kiểm tra nhanh trước mỗi lần dùng nghiêm túc**
+
+```bash
+node src/index.ts doctor            # miễn phí: CLI nào có mặt, vai nào vào CLI nào
+node src/index.ts doctor --health   # tốn ít token: từng cặp (CLI, model) có trả lời được không
+```
+
+`doctor --health` canary **từng cặp (runtime, model)**, không phải mỗi runtime một lần —
+vì các vai ghim model khác nhau trên cùng một CLI, và một model ngoài gói tài khoản sẽ
+lỗi riêng nó.
+
 ## Giới hạn cần biết
 
-- **Chưa được chạy thử với CLI thật.** Máy phát triển không có `claude`/`codex`/`agy` nào
-  được cài, nên 155 test chạy trên **CLI giả** mô phỏng đúng format output đã nghiên cứu.
-  Mọi logic phân loại, định tuyến, phân vai, cô lập, timeout đều có test; nhưng **cờ dòng
-  lệnh thật của từng phiên bản CLI thì chỉ `agora doctor --health` trên máy bạn mới xác nhận
-  được**. Chạy lệnh đó trước khi tin kết quả. Nếu một cờ không được hỗ trợ, tầng
-  `argplan.ts` sẽ tự thử lại không có cờ tuỳ chọn.
+- **Đã kiểm chứng tới đâu.** 155 test chạy trên **CLI giả**, không cần cài agent nào.
+  Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
+  thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
+  việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
+  được cũng đúng. **Adapter Claude Code chưa được xác nhận bằng một lượt thành công** —
+  máy test chưa đăng nhập claude, nên chỉ xác nhận được nhánh báo lỗi `auth`. Chạy
+  `doctor --health` trên máy bạn trước khi tin kết quả; nếu một cờ không được hỗ trợ,
+  `argplan.ts` tự thử lại không có nhóm cờ tuỳ chọn.
+- **Antigravity (`agy`) và Gemini CLI chưa được chạy thử lần nào** — viết theo tài liệu
+  headless, chưa có máy nào cài để xác nhận.
 - **Chi phí USD chỉ Claude báo.** Codex/Gemini/Antigravity báo token hoặc không báo gì;
   tổng chi phí luôn ghi rõ có bao nhiêu lượt *không* nằm trong con số đó.
 - **Chất lượng tranh luận phụ thuộc vai có thật sự khác nhau.** Ba persona trên cùng một
