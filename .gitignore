@@ -1,0 +1,8 @@
+# third-party source cloned only for architecture study — never shipped
+.research/
+# debate artifacts
+.agora/
+runs/
+node_modules/
+*.log
+.DS_Store

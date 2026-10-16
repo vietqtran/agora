@@ -1,0 +1,29 @@
+{
+  "name": "agora",
+  "version": "0.1.0",
+  "description": "Structured debate between the AI agent CLIs you actually have installed (Claude Code, Codex, Antigravity/Gemini, ...) for research and pre-development knowledge work.",
+  "type": "module",
+  "bin": {
+    "agora": "bin/agora.mjs"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "doctor": "node src/index.ts doctor",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "roles/",
+    "README.md"
+  ],
+  "license": "MIT",
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}

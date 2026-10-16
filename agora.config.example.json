@@ -1,0 +1,66 @@
+{
+  // Copy thành agora.config.json (hoặc ~/.config/agora/config.json) rồi sửa.
+  // Thứ tự ưu tiên: mặc định built-in → ~/.config/agora/config.json → ./agora.config.json → cờ CLI
+  // Cho phép comment // và /* */ trong file này.
+
+  "language": "vi",
+  "rounds": 2,
+  "timeoutMinutes": 10,
+  "maxQuestions": 3,
+
+  // Các vai tham gia. Xem `agora roles`. Thêm vai mới = tạo file .md trong ./roles
+  "roles": ["architect", "researcher", "domain-expert"],
+  "judge": "judge",
+
+  // Mặc định cho từng runtime. KHÔNG đặt "bin" ở config commit vào git —
+  // đường dẫn tuyệt đối chỉ đúng trên một máy. Để detect tự giải quyết.
+  "providers": {
+    "claude": { "model": "sonnet", "maxBudgetUsd": 5, "effort": "medium" },
+    "codex": { "effort": "medium" },
+    "antigravity": {},
+    "gemini": {}
+  },
+
+  // Tuỳ chọn theo vai. Khoá chung (effort, budget) áp cho mọi runtime;
+  // tên model KHÔNG dùng chung được giữa các hãng nên phải nằm trong byProvider.
+  "roleOptions": {
+    "judge": {
+      "effort": "high",
+      "byProvider": {
+        "claude": { "model": "opus", "maxBudgetUsd": 5 }
+      }
+    },
+    "researcher": {
+      // Trên host nhiều người dùng, ghim stdin để prompt không hiện trong `ps`.
+      "promptMode": "stdin"
+    }
+  },
+
+  // Ghim vai vào runtime cụ thể. Bỏ trống để caster tự chọn theo máy.
+  "cast": {
+    // "domain-expert": "antigravity"
+  },
+
+  // Khai báo CLI mà tool chưa biết. Đây là chỗ để "có gì dùng nấy" với CLI bất kỳ.
+  "custom": [
+    // {
+    //   "provider": "custom",
+    //   "id": "opencode",
+    //   "label": "OpenCode",
+    //   "vendor": "opencode",
+    //   "command": "opencode",
+    //   "args": ["run", "--format", "json", "{prompt}"],
+    //   "promptMode": "arg",     // arg | stdin | append
+    //   "parse": "json",         // text | json | jsonl
+    //   "textPath": "response",  // đường dẫn tới câu trả lời trong JSON
+    //   "web": true,             // khai báo năng lực, dùng cho việc phân vai
+    //   "execute": false
+    // }
+  ],
+
+  // Cho một runtime đóng nhiều vai khi máy không có CLI nào khác.
+  // false = thà để trống vai còn hơn giả vờ có đối chất độc lập.
+  "allowShared": true,
+
+  "outDir": ".agora/runs"
+}
