@@ -59,12 +59,27 @@ export type ProviderSpec = {
   maxBudgetUsd?: number;
   timeoutMs?: number;
   /**
+   * Claude Code only. `--bare` keeps the user's CLAUDE.md, hooks, skills and MCP out of
+   * the persona, so it is ON by default. Turn it off when the CLI reports an auth failure
+   * under it: `--bare` is reported upstream (NOT reproduced here) to bypass the
+   * OAuth/keychain session, which breaks an account login while an API key keeps working.
+   * The cost of turning it off is real — the role then inherits the project's own rules.
+   */
+  bare?: boolean;
+  /**
    * Grant web access for this participant. Off by default so a debate cannot
    * silently reach the network; the researcher role turns it on deliberately.
    */
   web?: boolean;
   /** Grant a shell (read-only commands) so the turn can gather repo evidence. */
   execute?: boolean;
+  /**
+   * Ask the CLI for an OS/container sandbox where it supports one (the Google CLIs'
+   * `--sandbox`). Unset = probe the host and use it if a backend exists. Set it true to
+   * demand it on a host we failed to detect, false to keep a container from being spun
+   * up at all — either way the turn records which way it went.
+   */
+  sandbox?: boolean;
   /** Extra env for the child process only. */
   env?: Record<string, string>;
 
@@ -115,6 +130,15 @@ export type ProviderDef = {
   make(spec: ProviderSpec): Agent;
 };
 
+/**
+ * How a turn ran weaker than advertised: dropped flags, a sandbox the host could not
+ * provide. Kept on the capture so no adapter return path can lose it — this accessor is
+ * the only thing consumers should need to know about that.
+ */
+export function outcomeNotes(o: AgentOutcome): string[] {
+  return o.capture?.notes ?? [];
+}
+
 /** Shared helper: first non-empty trimmed string, or "". */
 export function firstText(...candidates: unknown[]): string {
   for (const c of candidates) {
@@ -155,7 +179,11 @@ export function classify(stderr: string, fallback: FailureKind = "other"): Failu
 export function remedy(kind: FailureKind, providerKey: string, bin: string): string {
   switch (kind) {
     case "auth":
-      return `chạy \`${bin}\` trên máy này rồi đăng nhập (vd. /login), sau đó thử lại`;
+      // Claude has a second, non-obvious cause: `--bare` reportedly ignores the
+      // OAuth/keychain session, so a CLI that is genuinely logged in still fails here.
+      return providerKey === "claude"
+        ? `chạy \`${bin}\` trên máy này rồi đăng nhập (/login). Nếu \`${bin}\` báo đã đăng nhập mà vẫn lỗi: đặt "providers": { "claude": { "bare": false } } — đổi lại persona sẽ nạp cả CLAUDE.md/hooks/MCP của dự án`
+        : `chạy \`${bin}\` trên máy này rồi đăng nhập (vd. /login), sau đó thử lại`;
     case "model":
       return `model đang yêu cầu không dùng được với tài khoản này — đặt "providers": { "${providerKey}": { "model": "<model hợp lệ>" } } trong agora.config.json`;
     case "not-runnable":

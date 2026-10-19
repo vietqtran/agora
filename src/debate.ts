@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { Agent, AgentOutcome } from "./providers/types.ts";
+import { outcomeNotes, type Agent, type AgentOutcome } from "./providers/types.ts";
 import type { Role } from "./roles.ts";
 import type { Binding } from "./casting.ts";
 import { buildPrompt, type Phase } from "./prompts.ts";
@@ -60,6 +60,8 @@ export type DebateEvent =
       questionsAsked?: number;
       kind?: string;
       costUsd?: number;
+      /** Guarantees this turn ran without. Shown next to the turn, never folded into it. */
+      notes?: string[];
     }
   | { type: "questions"; log: string; items: Question[] }
   | { type: "warn"; message: string };
@@ -252,6 +254,7 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
         ? { chars: run.outcome.text.length, questionsAsked: parsed.questions.length }
         : { kind: run.outcome.kind }),
       ...(run.outcome.costUsd !== undefined && { costUsd: run.outcome.costUsd }),
+      ...(outcomeNotes(run.outcome).length && { notes: outcomeNotes(run.outcome) }),
     });
     return turn;
   };

@@ -26,6 +26,14 @@ export type CliCapture = {
   stderr: string;
   timedOut: boolean;
   ms: number;
+  /**
+   * Facts about HOW this invocation ran that the answer itself cannot show: a retry that
+   * dropped flags, a sandbox the host could not provide. They live on the capture
+   * because every adapter already attaches its capture to every outcome, success or
+   * failure — so an isolation guarantee that quietly did not hold cannot slip through
+   * one unhandled return path. The audit trail reads these; prompt context never does.
+   */
+  notes?: string[];
 };
 
 export type RunOpts = {

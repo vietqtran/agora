@@ -119,6 +119,13 @@
   .seat .rt { color: var(--ink-faint); font-size: 12px; }
   .seat .stats { margin-left: auto; color: var(--ink-faint); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .seat.run .stats { color: var(--accent); }
+  /* A degraded turn still shows a green tick, so the caveat has to be visible on the
+     card itself — not folded into the stats line where it would be mistaken for timing. */
+  .seat.degraded { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+  .seat-note {
+    display: flex; gap: 6px; font-size: 12px; color: var(--warn); line-height: 1.45;
+    padding: 2px 11px 0 36px;
+  }
   @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
   .seat.run .ic { animation: pulse 1.2s ease-in-out infinite; color: var(--accent); }
 
@@ -459,7 +466,7 @@ function renderPipeline() {
 
     const seats = el("div", "seats");
     for (const s of ph.seats) {
-      const row = el("div", `seat ${s.status}`);
+      const row = el("div", `seat ${s.status}${s.notes?.length ? " degraded" : ""}`);
       const icon = s.status === "run" ? "●" : s.status === "ok" ? "✓" : "✗";
       row.append(el("span", "ic", icon));
       row.append(el("span", "who", state.roleName[s.roleId] || s.roleId));
@@ -475,6 +482,12 @@ function renderPipeline() {
       } else stats.textContent = s.detail || "lỗi";
       row.append(stats);
       seats.append(row);
+      for (const n of s.notes || []) {
+        const note = el("div", "seat-note");
+        note.append(el("span", null, "⚠"));
+        note.append(el("span", null, "hạ cấp: " + n));
+        seats.append(note);
+      }
     }
     wrap.append(seats);
 
@@ -513,7 +526,7 @@ function onEvent(e) {
     const ph = currentPhase();
     const seat = ph?.seats.find((s) => s.roleId === e.roleId && s.status === "run");
     if (seat) Object.assign(seat, { status: e.ok ? "ok" : "fail", ms: e.ms, chars: e.chars,
-      questionsAsked: e.questionsAsked, costUsd: e.costUsd, detail: e.detail });
+      questionsAsked: e.questionsAsked, costUsd: e.costUsd, detail: e.detail, notes: e.notes });
   } else if (e.type === "questions") {
     // Questions are emitted at the START of the round that must answer them, so they
     // belong to the phase that is about to run, not the one that produced them.

@@ -208,6 +208,7 @@ async function cmdDoctor(p: Parsed): Promise<number> {
     if (!h.ok) bad++;
     log(`  ${mark} ${h.label.padEnd(26)} ${c.dim(fmtSecs(h.ms).padStart(5))}  ${h.ok ? c.dim(h.detail) : c.red(h.detail)}`);
     if (!h.ok && h.kind) log(`      ${c.yellow("→ cách sửa: ")}${c.dim(remedy(h.kind, h.provider, h.bin))}`);
+    for (const n of h.notes ?? []) log(`      ${c.yellow("⚠ hạ cấp: ")}${c.yellow(n)}`);
   }
   log(`\n${healths.length - bad}/${healths.length} runtime trả lời được — ${bad === 0 ? c.green("SẴN SÀNG") : c.red("CHƯA SẴN SÀNG")}`);
   return bad === 0 && result.unfilled.length === 0 ? 0 : 1;
@@ -360,6 +361,8 @@ async function cmdDebate(p: Parsed): Promise<number> {
     } else if (e.type === "turn-end") {
       const mark = e.ok ? c.green("✓") : c.red("✗");
       log(`  ${mark} ${e.label} ${c.dim(`(${fmtSecs(e.ms)}) ${e.detail}`)}`);
+      // A degraded turn still prints a green tick, so the caveat has to print too.
+      for (const n of e.notes ?? []) log(`      ${c.yellow("⚠ hạ cấp: ")}${c.yellow(n)}`);
     } else if (e.type === "questions") {
       log(c.dim(e.log.split("\n").map((l) => `    ${l}`).join("\n")));
     } else if (e.type === "warn") {

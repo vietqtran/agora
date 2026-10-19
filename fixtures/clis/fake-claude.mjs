@@ -8,6 +8,15 @@ if (mode === "unknown-flag" && args.includes("--no-session-persistence")) {
   process.stderr.write("error: unknown option '--no-session-persistence'\n");
   process.exit(1);
 }
+// The reported --bare interaction: the flag is ACCEPTED, then the session cannot be
+// read. Not an unknown-flag error, so argplan's retry never fires.
+if (mode === "bare-auth" && args.includes("--bare")) {
+  console.log(JSON.stringify({
+    is_error: true, subtype: "error_during_execution",
+    errors: ["auth: OAuth session expired and could not be refreshed"],
+  }));
+  process.exit(1);
+}
 if (mode === "exit127") process.exit(127);
 if (mode === "hang") { setTimeout(() => {}, 120_000); }
 else if (mode === "budget") {
@@ -28,7 +37,7 @@ else if (mode === "budget") {
 } else {
   console.log(JSON.stringify({
     is_error: false, subtype: "success",
-    result: `ĐÃ TRẢ LỜI. tools=${args[args.indexOf("--allowedTools") + 1] ?? "none"} model=${args[args.indexOf("--model") + 1] ?? "none"}`,
+    result: `ĐÃ TRẢ LỜI. tools=${args[args.indexOf("--allowedTools") + 1] ?? "none"} model=${args[args.indexOf("--model") + 1] ?? "none"} bare=${args.includes("--bare")}`,
     total_cost_usd: 0.0425, num_turns: 3, permission_denials: [],
   }));
 }

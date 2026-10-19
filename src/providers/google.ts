@@ -6,7 +6,8 @@
 // Standard/Enterprise licences and via GEMINI_API_KEY / Vertex, so both adapters ship:
 // the caster prefers `agy` and falls back to `gemini` only where it is still live.
 
-import { runPlanned, type ArgGroup } from "./argplan.ts";
+import { flagOrSandbox, runPlanned, type ArgGroup } from "./argplan.ts";
+import { wantSandbox } from "./sandbox.ts";
 import { argvTooLongHint, deliverPrompt, isArgvTooLong } from "./delivery.ts";
 import { spawnFailure, exitLabel, DEFAULT_TIMEOUT_MS } from "../spawn.ts";
 import type { Agent, AgentOutcome, ProviderDef, ProviderSpec, Usage } from "./types.ts";
@@ -28,10 +29,14 @@ function makeAgy(spec: ProviderSpec): Agent {
     bin,
     caps: { execute: true, web: spec.web === true, reportsCost: false },
     async run(prompt, cwd): Promise<AgentOutcome> {
+      // Print mode is agentic and may auto-run terminal commands, so the sandbox is the
+      // only thing standing between this turn and the user's files. Asked for whenever
+      // the host can honour it; when it cannot, the turn says so instead of pretending.
+      const sandbox = await wantSandbox(spec.sandbox);
       const groups: ArgGroup[] = [
-        // Print mode is agentic and may auto-run terminal commands; the sandbox keeps
-        // it on terminal restrictions. Optional so an older/newer binary still runs.
-        { args: ["--sandbox"], optional: true },
+        // Optional because an older/newer binary may not know the flag — and a run that
+        // drops it is UNSANDBOXED, which is why the loss is named rather than swallowed.
+        ...(sandbox.on ? [{ args: ["--sandbox"], optional: true, lost: "sandbox (--sandbox) — lượt này không bị OS chặn ghi" }] : []),
         // agy's own print timeout defaults shorter than ours; align them or it gives up
         // mid-thought and we never learn why.
         { args: ["--print-timeout", `${Math.max(1, Math.ceil(timeoutMs / 60_000))}m`], optional: true },
@@ -39,7 +44,8 @@ function makeAgy(spec: ProviderSpec): Agent {
         { args: ["-p", prompt] },
       ];
 
-      const r = await runPlanned(bin, groups, { cwd, timeoutMs });
+      const r = await runPlanned(bin, groups, { cwd, timeoutMs }, undefined, flagOrSandbox);
+      if (sandbox.note) r.notes = [...(r.notes ?? []), sandbox.note];
       if (r.timedOut) return { ok: false, error: `timeout after ${Math.round(r.ms / 1000)}s`, kind: "timeout", capture: r };
       // agy has no documented stdin prompt form, so a prompt the OS refuses needs an
       // explanation the user can act on rather than a bare E2BIG.
@@ -85,24 +91,37 @@ function makeGemini(spec: ProviderSpec): Agent {
     caps: { execute: spec.execute === true, web: spec.web === true, reportsCost: false },
     async run(prompt, cwd): Promise<AgentOutcome> {
       const delivery = deliverPrompt(prompt, spec.promptMode === "stdin" ? "stdin" : undefined);
+      const sandbox = await wantSandbox(spec.sandbox);
       const groups: ArgGroup[] = [
         // -p forces non-interactive. A bare positional prompt stays INTERACTIVE in a
         // TTY, which is how a scripted run ends up hanging on a REPL forever.
         { args: ["-p", delivery.argvPrompt ?? ""] },
         { args: ["--output-format", "json"] },
         ...(model ? [{ args: ["-m", model] }] : []),
-        // Unattended runs must not block on a tool-approval prompt. The turn already
-        // runs in a throwaway directory, so there is nothing here worth protecting.
-        { args: ["--approval-mode", "yolo"], optional: true },
+        // Pairs with yolo below and must be read together: yolo removes the human from
+        // every tool call, so the sandbox becomes the only remaining boundary. Asking
+        // for just one of the two is the configuration this adapter used to ship with.
+        ...(sandbox.on ? [{ args: ["--sandbox"], optional: true, lost: "sandbox (--sandbox) — không còn lớp chặn ghi nào ở mức OS" }] : []),
+        // Unattended runs must not block on a tool-approval prompt. The trade is real:
+        // this auto-approves EVERY tool call, and the throwaway cwd does not bound where
+        // a write lands — only the sandbox above does.
+        { args: ["--approval-mode", "yolo"], optional: true, lost: "tự duyệt tool (--approval-mode yolo) — lượt có thể bị chặn ở bước xin phép" },
       ];
 
-      const r = await runPlanned(bin, groups, {
-        cwd,
-        timeoutMs,
-        // The folder-trust gate will otherwise refuse or hang on an untrusted dir.
-        env: { GEMINI_CLI_TRUST_WORKSPACE: "true" },
-        ...(delivery.stdin !== undefined && { stdin: delivery.stdin }),
-      });
+      const r = await runPlanned(
+        bin,
+        groups,
+        {
+          cwd,
+          timeoutMs,
+          // The folder-trust gate will otherwise refuse or hang on an untrusted dir.
+          env: { GEMINI_CLI_TRUST_WORKSPACE: "true" },
+          ...(delivery.stdin !== undefined && { stdin: delivery.stdin }),
+        },
+        undefined,
+        flagOrSandbox,
+      );
+      if (sandbox.note) r.notes = [...(r.notes ?? []), sandbox.note];
 
       if (r.timedOut) return { ok: false, error: `timeout after ${Math.round(r.ms / 1000)}s`, kind: "timeout", capture: r };
       const spawnErr = spawnFailure(r);

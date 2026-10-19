@@ -10,6 +10,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { DebateResult } from "./debate.ts";
 import type { Binding } from "./casting.ts";
+import { outcomeNotes } from "./providers/types.ts";
 import { summarizeCost, turnTitle } from "./transcript.ts";
 
 /** Diacritic-safe slug: "Quản lý khối lượng" → "quan-ly-khoi-luong". */
@@ -100,6 +101,9 @@ export async function writeRun(paths: RunPaths, result: DebateResult, meta: RunM
           error: t.outcome.ok ? null : t.outcome.error,
           costUsd: t.outcome.costUsd ?? null,
           usage: t.outcome.usage ?? null,
+          // Empty array, not null: "we checked and there was no degradation" is a
+          // different statement from "this field predates the check".
+          notes: outcomeNotes(t.outcome),
           promptBytes: t.promptBytes,
           agentMs: Math.round(t.agentMs),
           turnMs: Math.round(t.turnMs),

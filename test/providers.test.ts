@@ -7,8 +7,9 @@ import { claudeProvider } from "../src/providers/claude.ts";
 import { codexProvider } from "../src/providers/codex.ts";
 import { geminiProvider, antigravityProvider } from "../src/providers/google.ts";
 import { customProvider, buildArgs, dotPath, extractText } from "../src/providers/custom.ts";
-import { unsupportedFlag, flatten } from "../src/providers/argplan.ts";
-import { classify, remedy } from "../src/providers/types.ts";
+import { unsupportedFlag, sandboxUnavailable, flagOrSandbox, flatten } from "../src/providers/argplan.ts";
+import { detectSandbox, wantSandbox } from "../src/providers/sandbox.ts";
+import { classify, outcomeNotes, remedy } from "../src/providers/types.ts";
 import { runCli } from "../src/spawn.ts";
 
 // The fake CLIs live OUTSIDE test/ on purpose: Node's default test discovery
@@ -77,6 +78,62 @@ test("claude: an unknown optional flag triggers one retry without it", async () 
   const agent = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
   const r = await withMode("unknown-flag", () => agent.run("hỏi", CWD));
   assert.ok(r.ok, "the retry without optional flags must succeed");
+});
+
+test("claude: --bare is passed by default and removable with bare:false", async () => {
+  // The flag that keeps the user's CLAUDE.md/hooks/MCP out of the persona. It must be
+  // on without being asked for, and off when asked — it is the escape hatch for the
+  // reported --bare vs OAuth-login conflict.
+  const on = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
+  const rOn = await withMode("success", () => on.run("hỏi", CWD));
+  assert.ok(rOn.ok);
+  assert.match(rOn.text, /bare=true/);
+
+  const off = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs"), bare: false });
+  const rOff = await withMode("success", () => off.run("hỏi", CWD));
+  assert.ok(rOff.ok);
+  assert.match(rOff.text, /bare=false/);
+});
+
+test("claude: an auth failure under --bare names the opt-out instead of dead-ending", async () => {
+  // argplan retries only on an UNKNOWN flag, so this failure is never retried. The one
+  // thing the user can act on is the hint, so it has to travel with the error.
+  const agent = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
+  const r = await withMode("bare-auth", () => agent.run("hỏi", CWD));
+  assert.ok(!r.ok && r.kind === "auth");
+  assert.match((r as { error: string }).error, /OAuth session expired/);
+  assert.match((r as { error: string }).error, /"bare": false/);
+
+  // And the hint must be true: turning it off actually gets the turn through.
+  const off = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs"), bare: false });
+  const rOff = await withMode("bare-auth", () => off.run("hỏi", CWD));
+  assert.ok(rOff.ok, "bare:false must get past the auth failure the hint blames on --bare");
+});
+
+test("claude: the bare hint is not bolted onto unrelated failures", async () => {
+  const agent = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs"), maxBudgetUsd: 2 });
+  const r = await withMode("budget", () => agent.run("hỏi", CWD));
+  assert.ok(!r.ok && r.kind === "budget");
+  assert.doesNotMatch((r as { error: string }).error, /bare/);
+});
+
+test("claude: a dropped --bare is recorded as a degraded turn, not passed off as clean", async () => {
+  // The whole point of the note: this turn SUCCEEDS and reads like any other, while the
+  // isolation the README advertises silently did not apply to it.
+  const agent = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
+  const r = await withMode("unknown-flag", () => agent.run("hỏi", CWD));
+  assert.ok(r.ok);
+  const notes = outcomeNotes(r);
+  assert.equal(notes.length, 1, "a degraded turn must carry exactly one retry note");
+  assert.match(notes[0], /--bare/);
+  assert.match(notes[0], /CLAUDE\.md/, "the note must say what context may have leaked in");
+});
+
+test("claude: a clean turn carries no notes at all", async () => {
+  const agent = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
+  const r = await withMode("success", () => agent.run("hỏi", CWD));
+  assert.ok(r.ok);
+  assert.deepEqual(outcomeNotes(r), []);
 });
 
 test("claude: an all-whitespace answer is a failure, not a success", async () => {
@@ -175,6 +232,49 @@ test("gemini: plain-text stdout degrades to a text answer instead of being throw
   assert.match(r.text, /văn bản thuần/);
 });
 
+test("gemini: --sandbox is requested, and yolo without it is the shape we refuse to ship", async () => {
+  // These two flags are a pair: --approval-mode yolo removes the human from every tool
+  // call, so the sandbox is the only boundary left. Asking for yolo alone was the bug.
+  const agent = geminiProvider.make({ provider: "gemini", bin: fake("fake-gemini.mjs"), sandbox: true });
+  const r = await withMode("echo-args", () => agent.run("hỏi", CWD));
+  assert.ok(r.ok);
+  assert.match(r.text, /--sandbox/);
+  assert.match(r.text, /--approval-mode yolo/);
+});
+
+test("gemini: a host with no sandbox backend runs anyway and SAYS it is unsandboxed", async () => {
+  const agent = geminiProvider.make({ provider: "gemini", bin: fake("fake-gemini.mjs"), sandbox: false });
+  const r = await withMode("echo-args", () => agent.run("hỏi", CWD));
+  assert.ok(r.ok);
+  assert.doesNotMatch(r.text, /--sandbox/);
+  assert.match(outcomeNotes(r).join(" "), /KHÔNG sandbox/);
+});
+
+test("gemini: a sandbox the host cannot honour is retried without it, with a note", async () => {
+  // Not an unknown-flag error, which is the retry gap this adapter had to opt out of:
+  // a docker-less host would otherwise lose every Gemini turn the moment we ask for a
+  // sandbox. Recover, then say the boundary is gone.
+  const agent = geminiProvider.make({ provider: "gemini", bin: fake("fake-gemini.mjs"), sandbox: true });
+  const r = await withMode("sandbox-missing", () => agent.run("hỏi", CWD));
+  assert.ok(r.ok, "the turn must survive a host without docker/podman");
+  assert.match(outcomeNotes(r).join(" "), /sandbox/i);
+});
+
+test("antigravity: a sandbox the host cannot honour is retried without it, with a note", async () => {
+  const agent = antigravityProvider.make({ provider: "antigravity", bin: fake("fake-text.mjs"), sandbox: true });
+  const r = await withMode("sandbox-missing", () => agent.run("hỏi", CWD));
+  assert.ok(r.ok);
+  assert.doesNotMatch(r.text, /--sandbox/, "the retry must actually drop the flag");
+  assert.match(outcomeNotes(r).join(" "), /không bị OS chặn ghi/);
+});
+
+test("codex: losing web search is named, because a researcher without it may fabricate", async () => {
+  const agent = codexProvider.make({ provider: "codex", bin: fake("fake-codex.mjs"), web: true });
+  const r = await withMode("unknown-flag", () => agent.run("hỏi", CWD));
+  assert.ok(r.ok);
+  assert.match(outcomeNotes(r).join(" "), /web search/);
+});
+
 test("gemini is marked retired so casting deprioritises it", () => {
   assert.ok(geminiProvider.deprecated, "gemini CLI was retired on 2026-06-18");
   assert.equal(antigravityProvider.deprecated, undefined);
@@ -265,6 +365,43 @@ test("a timed-out CLI that leaked a child still resolves promptly (process-group
   assert.ok(elapsed < 10_000, `took ${elapsed}ms — the process group was not killed`);
 });
 
+test("sandboxUnavailable separates a missing backend from an unknown flag", () => {
+  const base = { code: 1, signal: null, stdout: "", stderr: "", timedOut: false, ms: 1 };
+  for (const msg of [
+    "Error: Sandbox is enabled but docker is not running",
+    "failed to start sandbox: podman not found",
+    "sandbox not supported on this platform",
+    "Sandboxing failed; see logs",
+    "error: cannot connect to the Docker daemon",
+  ]) {
+    assert.ok(sandboxUnavailable({ ...base, stderr: msg }), `missed: ${msg}`);
+  }
+  // A turn that merely talks about sandboxes is not a sandbox failure.
+  assert.equal(sandboxUnavailable({ ...base, stderr: "quota exceeded" }), false);
+  assert.equal(sandboxUnavailable({ ...base, stdout: "tôi đã chạy trong sandbox read-only" }), false);
+  // The combined trigger is what the Google adapters pass in.
+  assert.ok(flagOrSandbox({ ...base, stderr: "unknown option '--sandbox'" }));
+  assert.ok(flagOrSandbox({ ...base, stderr: "failed to create sandbox" }));
+  assert.equal(flagOrSandbox({ ...base, stderr: "quota exceeded" }), false);
+});
+
+test("the sandbox probe reports a backend, or names what is missing", async () => {
+  const none = await detectSandbox({ PATH: "" }, "linux");
+  assert.equal(none.available, false);
+  assert.match(none.how, /docker\/podman/);
+  // Fake a host whose PATH has a docker binary: the directory holding the fake CLIs.
+  const withDocker = await detectSandbox({ PATH: FAKES }, "linux");
+  assert.equal(withDocker.available, false, "a fixtures dir has no docker, only fakes");
+  assert.equal((await detectSandbox({ PATH: "" }, "darwin")).available, true, "macOS ships seatbelt");
+});
+
+test("explicit config beats the probe in both directions", async () => {
+  assert.deepEqual(await wantSandbox(true, { PATH: "" }), { on: true, note: null });
+  const off = await wantSandbox(false, { PATH: "" });
+  assert.equal(off.on, false);
+  assert.match(off.note ?? "", /cấu hình/, "an opt-out must still be recorded on the turn");
+});
+
 test("unsupportedFlag recognises the common phrasings and ignores unrelated errors", () => {
   const base = { code: 1, signal: null, stdout: "", timedOut: false, ms: 1 };
   for (const msg of [
@@ -277,6 +414,8 @@ test("unsupportedFlag recognises the common phrasings and ignores unrelated erro
     assert.ok(unsupportedFlag({ ...base, stderr: msg }), `missed: ${msg}`);
   }
   assert.equal(unsupportedFlag({ ...base, stderr: "quota exceeded" }), false);
+  // A sandbox that cannot start is a DIFFERENT family: the CLI understood the flag.
+  assert.equal(unsupportedFlag({ ...base, stderr: "failed to start sandbox: podman not found" }), false);
 });
 
 test("flatten can drop the optional groups", () => {
@@ -319,6 +458,10 @@ test("every failure kind names an action, and the action differs by kind", () =>
   const messages = kinds.map((k) => remedy(k, "codex", "/usr/bin/codex"));
   assert.equal(new Set(messages).size, kinds.length, "two kinds share a remedy");
   assert.match(remedy("auth", "claude", "/usr/local/bin/claude"), /\/usr\/local\/bin\/claude/);
+  // Claude's auth remedy must mention the second cause, or a logged-in user has
+  // nothing to try after /login fails to change anything.
+  assert.match(remedy("auth", "claude", "claude"), /"bare": false/);
+  assert.doesNotMatch(remedy("auth", "codex", "codex"), /bare/);
   assert.match(remedy("model", "codex", "codex"), /providers/);
   assert.match(remedy("not-runnable", "codex", "codex"), /PATH/);
 });

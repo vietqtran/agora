@@ -44,8 +44,12 @@ function make(spec: ProviderSpec): Agent {
         ...(model ? [{ args: ["-m", model] }] : []),
         // Codex has no --effort flag; effort is a config override.
         ...(spec.effort ? [{ args: ["-c", `model_reasoning_effort="${spec.effort}"`], optional: true }] : []),
-        // Web access is a sandbox setting, not a tool flag.
-        ...(spec.web ? [{ args: ["-c", "tools.web_search=true"], optional: true }] : []),
+        // Web access is a sandbox setting, not a tool flag. Naming the loss matters most
+        // here: a researcher that silently lost web search is the fabrication risk the
+        // caster refuses to cast for, reintroduced by a flag retry.
+        ...(spec.web
+          ? [{ args: ["-c", "tools.web_search=true"], optional: true, lost: "web search — vai này mất khả năng tra cứu, số liệu có thể là bịa" }]
+          : []),
         { args: [delivery.viaStdin ? "-" : prompt] },
       ];
 

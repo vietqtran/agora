@@ -1,5 +1,14 @@
 #!/usr/bin/env node
+const args = process.argv.slice(2);
 const mode = process.env.FAKE_MODE ?? "success";
+// Lets a test read the argv the adapter built, without changing the answer the other
+// tests assert on.
+if (mode === "echo-args") { console.log(JSON.stringify({ response: args.join(" ") })); process.exit(0); }
+// Sandbox asked for on a host that cannot provide one.
+if (mode === "sandbox-missing" && args.includes("--sandbox")) {
+  process.stderr.write("Error: Sandbox is enabled but docker is not running\n");
+  process.exit(1);
+}
 if (mode === "error") {
   console.log(JSON.stringify({ error: { type: "ApiError", message: "quota exceeded", code: 429 } }));
   process.exit(1);

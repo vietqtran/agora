@@ -9,7 +9,7 @@ import { runDebate, runIsolated, parseVerdictStatus, type Seat } from "../src/de
 import type { Agent, AgentOutcome } from "../src/providers/types.ts";
 import type { Role } from "../src/roles.ts";
 import type { Binding } from "../src/casting.ts";
-import { renderArtifact, renderContext, summarizeCost, type Turn } from "../src/transcript.ts";
+import { renderArtifact, renderContext, renderCostFooter, summarizeCost, type Turn } from "../src/transcript.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -354,6 +354,79 @@ test("the artifact view keeps failures and cost; the context view hides the plum
   assert.match(ctx, /không đưa ra ý kiến/);
 });
 
+test("the live stream carries degradation, so a UI cannot draw a clean turn", async () => {
+  // A green tick in the terminal or the web pipeline is exactly where a lost sandbox
+  // would otherwise disappear: the answer arrived, so the seat looks fine.
+  const note = "lượt này chạy KHÔNG sandbox: không thấy backend sandbox nào";
+  const degraded = (text: string): AgentOutcome => ({
+    ok: true,
+    text,
+    capture: { code: 0, signal: null, stdout: "", stderr: "", timedOut: false, ms: 5, notes: [note] },
+  });
+  const events: { roleId: string; notes?: string[] }[] = [];
+  await runDebate({
+    topic: "t",
+    seats: [seat("a", "p1", () => degraded("x")), seat("b", "p2", () => ok("y"))],
+    rounds: 0,
+    language: "vi",
+    maxQuestions: 3,
+    skipSynthesis: true,
+    onEvent: (e) => {
+      if (e.type === "turn-end") events.push({ roleId: e.roleId, ...(e.notes && { notes: e.notes }) });
+    },
+  });
+  assert.deepEqual(events.find((e) => e.roleId === "a")?.notes, [note]);
+  assert.equal(events.find((e) => e.roleId === "b")?.notes, undefined, "a clean turn stays clean");
+});
+
+test("a degraded turn is flagged in the artifact and in the footer, never in the prompt", () => {
+  // The failure mode this guards: a turn that lost its sandbox or its context isolation
+  // produces a perfectly normal-looking answer. The audit view must say so; the next
+  // agent's prompt must not, or the debate starts arguing about our flag handling.
+  const capture = {
+    code: 0,
+    signal: null,
+    stdout: "",
+    stderr: "",
+    timedOut: false,
+    ms: 5,
+    notes: ["CLI từ chối một cờ nên lượt này đã chạy LẠI không có các cờ tuỳ chọn (--bare) — mất: cách ly context (--bare)"],
+  };
+  const turn: Turn = {
+    phase: "opening",
+    roleId: "a",
+    roleName: "A",
+    provider: "p",
+    providerLabel: "P",
+    shared: false,
+    outcome: { ok: true, text: "ý kiến chuyên môn", capture },
+    promptBytes: 10,
+    agentMs: 1000,
+    turnMs: 1100,
+    questions: [],
+    unrouted: [],
+  };
+
+  const art = renderArtifact(turn);
+  assert.match(art, /HẠ CẤP/);
+  assert.match(art, /--bare/);
+  assert.match(art, /ý kiến chuyên môn/, "the answer itself must still be there");
+
+  const ctx = renderContext(turn);
+  assert.doesNotMatch(ctx, /HẠ CẤP/);
+  assert.doesNotMatch(ctx, /--bare/);
+
+  // Also countable at the bottom of the transcript, next to the money.
+  assert.equal(summarizeCost([turn]).degradedTurns, 1);
+  assert.match(renderCostFooter([turn]), /1 lượt hạ cấp/);
+
+  // A failed turn that was ALSO degraded must report both, not pick one.
+  const failed: Turn = { ...turn, outcome: { ok: false, error: "quota hết", kind: "budget", capture } };
+  const failedArt = renderArtifact(failed);
+  assert.match(failedArt, /HẠ CẤP/);
+  assert.match(failedArt, /THẤT BẠI/);
+});
+
 test("the cost summary never presents an unpriced run as free", () => {
   const base = {
     phase: "opening" as const,
@@ -377,6 +450,7 @@ test("the cost summary never presents an unpriced run as free", () => {
   assert.equal(s.unpricedTurns, 2);
   assert.equal(s.ok, 2);
   assert.equal(s.failed, 1);
+  assert.equal(s.degradedTurns, 0, "no notes means no degradation, not unknown");
 });
 
 test("rounds: 0 runs the opening only", async () => {

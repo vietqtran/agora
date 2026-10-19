@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 // Stands in for `codex exec --json`: JSONL on stdout.
+const args = process.argv.slice(2);
 const mode = process.env.FAKE_MODE ?? "success";
 const say = (o) => console.log(JSON.stringify(o));
+
+// An older codex that rejects one of the optional flags, so the retry path is exercised
+// with web search among the groups that get dropped.
+if (mode === "unknown-flag" && args.includes("--ephemeral")) {
+  process.stderr.write("error: unexpected argument '--ephemeral' found\n");
+  process.exit(1);
+}
 
 if (mode === "turn-failed") {
   say({ type: "item.completed", item: { type: "agent_message", text: "một phần" } });

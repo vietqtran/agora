@@ -15,8 +15,15 @@
   // Mặc định cho từng runtime. KHÔNG đặt "bin" ở config commit vào git —
   // đường dẫn tuyệt đối chỉ đúng trên một máy. Để detect tự giải quyết.
   "providers": {
-    "claude": { "model": "sonnet", "maxBudgetUsd": 5, "effort": "medium" },
+    // "bare": false chỉ dùng khi claude đã đăng nhập mà agora vẫn báo lỗi auth —
+    // --bare có báo cáo là bỏ qua OAuth/keychain. Đổi lại: persona sẽ nạp cả
+    // CLAUDE.md, hooks và MCP của dự án đang mở. Mặc định là true.
+    "claude": { "model": "sonnet", "maxBudgetUsd": 5, "effort": "medium", "bare": true },
     "codex": { "effort": "medium" },
+    // Để trống "sandbox" là tốt nhất: tool tự dò máy (seatbelt trên macOS,
+    // docker/podman ở nơi khác) rồi mới xin --sandbox. Đặt true để ép xin kể cả khi dò
+    // không thấy, false để không bao giờ xin (vd. không muốn dựng container).
+    // Lượt chạy không sandbox luôn bị ghi chú là hạ cấp, dù vì lý do nào.
     "antigravity": {},
     "gemini": {}
   },

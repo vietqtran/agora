@@ -34,7 +34,8 @@ thì dùng `codex`, chỉ có một cái thì vẫn chạy được (và nói th
 ## Cài
 
 ```bash
-cd agents-debate
+git clone git@github.com:vietqtran/agora.git
+cd agora
 npm install          # chỉ để có typescript cho `npm run typecheck`; runtime không cần
 npm link             # hoặc: alias agora="node $PWD/src/index.ts"
 ```
@@ -283,14 +284,72 @@ Tool gửi tư liệu của bạn tới **2-3 nhà cung cấp khác nhau trong c
 - **Cảnh báo prompt-injection**: nội dung tải từ URL là dữ liệu không tin được. Tool **báo
   cho bạn và nhắc agent coi đó là dữ liệu**, nhưng *không sửa* tư liệu — sửa thầm còn tệ
   hơn chính cuộc tấn công.
-- **Chỉ đọc**: adapter Claude chặn cứng `Edit,Write,NotebookEdit`; Codex chạy trong sandbox
-  `read-only` của OS. Với `--repo`, agent làm việc trong **git worktree tạm từ HEAD**, không
-  phải checkout thật của bạn.
-- **Cô lập từng lượt**: mỗi lượt một thư mục tạm riêng, xoá sau khi xong.
+- **"Chỉ đọc" KHÔNG đồng đều giữa các CLI.** Đây là chỗ dễ tin quá mức nhất, nên nói thẳng
+  từng runtime chặn việc ghi bằng cái gì:
+
+  | Runtime | Chặn ghi bằng | Mức bảo đảm |
+  |---|---|---|
+  | Codex | `-s read-only` | **sandbox của OS cưỡng chế** |
+  | Claude Code | `--disallowedTools Edit,Write,NotebookEdit` + allowlist công cụ, cả hai là **cờ bắt buộc** (không chạy được thì để lượt đó lỗi) | tầng công cụ của CLI, không phải OS |
+  | Antigravity (`agy`) | `--sandbox` **khi máy có backend** (seatbelt trên macOS, hoặc docker/podman) | sandbox OS nếu có backend, nếu không thì **ghi rõ là không có** |
+  | Gemini CLI | `--sandbox` như trên, cộng `--approval-mode yolo` (**tự duyệt mọi lời gọi công cụ**) + `GEMINI_CLI_TRUST_WORKSPACE=true` | như trên — và yolo nghĩa là **sandbox là lớp chặn duy nhất còn lại** |
+
+  Với `--repo`, agent làm việc trong **git worktree tạm từ HEAD**, không phải checkout thật
+  của bạn.
+
+  Hai cờ `--sandbox` đó là **yêu cầu, không phải bảo đảm**: CLI cần backend mới làm được.
+  Nên tool **dò máy trước** — có backend thì xin sandbox, không có thì vẫn chạy nhưng **ghi
+  thẳng vào lượt đó là đã chạy không sandbox** (xem [Khi một lượt chạy yếu hơn
+  quảng cáo](#khi-một-lượt-chạy-yếu-hơn-quảng-cáo)). Ép tay cho `antigravity`/`gemini`:
+  `"sandbox": true | false` trong `providers` — cấu hình luôn thắng kết quả dò.
+- **Cô lập ở đây là cô lập THƯ MỤC LÀM VIỆC, không phải sandbox hệ thống file.** Mỗi lượt một
+  thư mục tạm riêng, xoá sau khi xong — đủ để không lượt nào "nhìn bài" lượt khác. Nhưng
+  **không có code nào giới hạn đường dẫn ĐỌC**: trừ Codex (sandbox OS), một vai được cấp
+  `Read`/shell vẫn đọc được mọi file mà user của bạn đọc được, kể cả ngoài thư mục tạm. Env
+  của process cha cũng được kế thừa nguyên vẹn. Đừng chạy tool này dưới user có quyền bạn
+  không muốn một model dùng tới.
 - **Không hút context của bạn**: adapter Claude truyền `--bare` để không tự nạp `CLAUDE.md`,
   hooks, skills, MCP — persona phải là persona tool giao, không lẫn quy tắc dự án của bạn.
+  Hai điều kèm theo cần biết: `--bare` **có báo cáo là bỏ qua session OAuth/keychain**
+  (xem [Xử lý sự cố](#xử-lý-sự-cố)), và nó nằm trong nhóm cờ **tuỳ chọn** — nên một bản
+  `claude` không biết cờ này sẽ chạy **không có** lớp cách ly đó. Lượt như vậy không còn im
+  lặng: nó bị đánh dấu hạ cấp, kèm câu "persona có thể đã nạp CLAUDE.md/hooks/MCP của dự án".
 - **Prompt dài tự chuyển sang stdin** (ngưỡng 96 KB), vì Linux giới hạn 1 tham số argv ở
   128 KB và argv hiện trong `ps` cho mọi user trên máy.
+
+## Khi một lượt chạy yếu hơn quảng cáo
+
+Các CLI đổi cờ giữa các bản, nên khi một CLI từ chối một cờ, `argplan.ts` bỏ **nhóm cờ tuỳ
+chọn** và chạy lại một lần — đó là thứ giúp một cấu hình dùng được trên cả dàn máy có phiên
+bản khác nhau. Nhưng trong nhóm tuỳ chọn có cả cờ **an toàn** (`--bare`, `--sandbox`) và cờ
+**năng lực** (`tools.web_search`), nên "chạy lại cho xong" có thể âm thầm biến một lượt thành
+một lượt khác hẳn: hết sandbox, persona bị trộn quy tắc dự án, hoặc researcher mất khả năng
+tra cứu mà vẫn trả lời bằng số liệu.
+
+Lượt như thế gọi là **hạ cấp**, và nó được ghi ở **bốn** chỗ, vì một lượt hạ cấp đọc giống
+y một lượt bình thường:
+
+```
+terminal       ⚠ hạ cấp: máy không cấp được sandbox nên lượt này đã chạy LẠI không có
+               các cờ tuỳ chọn (--sandbox --approval-mode) — mất: sandbox (--sandbox)…
+transcript.md  > ⚠️ HẠ CẤP: … ngay trên câu trả lời của lượt đó
+               + chân trang đếm: "2 lượt hạ cấp"
+run.json       turns[].notes: [...]  ·  cost.degradedTurns: 2
+giao diện web  thẻ của vai đó viền vàng, kèm dòng cảnh báo
+```
+
+Những mất mát được gọi tên, không phải chỉ liệt kê cờ:
+
+| Cờ bị bỏ | Câu ghi vào lượt |
+|---|---|
+| `--bare` (claude) | persona có thể đã nạp `CLAUDE.md`/hooks/skills/MCP của dự án |
+| `--sandbox` (agy, gemini) | không còn lớp chặn ghi nào ở mức OS |
+| `tools.web_search` (codex) | vai này mất khả năng tra cứu, **số liệu có thể là bịa** |
+
+Lỗi sandbox cũng được tính là lý do thử lại, không chỉ lỗi "cờ không hỗ trợ": máy không có
+docker/podman thì lượt vẫn chạy (không sandbox, có ghi chú) thay vì chết.
+**Biên bản gửi cho agent khác thì không chứa các ghi chú này** — chúng là thông tin kiểm
+toán cho bạn, không phải thứ để agent quay sang bàn về cờ dòng lệnh.
 
 ## Xử lý sự cố
 
@@ -311,6 +370,22 @@ riêng cho agora:
 { "providers": { "codex": { "model": "gpt-5.6-sol" } } }
 ```
 
+**`auth: ...` nhưng `claude auth status` nói đã đăng nhập**
+Đây là lỗi riêng của `--bare` (cờ agora truyền để không nạp `CLAUDE.md`/hooks/MCP của bạn):
+theo các issue trên GitHub, cờ này **bỏ qua OAuth/keychain**, nên máy đăng nhập bằng *tài
+khoản* lỗi auth ở đây trong khi `ANTHROPIC_API_KEY` thì chạy bình thường. **Chưa kiểm chứng
+được tại chỗ** — máy viết tool không có account login để tái hiện; nếu bạn gặp, đây là cách ra:
+
+```json
+{ "providers": { "claude": { "bare": false } } }
+```
+
+Đổi lại: persona Claude sẽ nạp cả `CLAUDE.md`, hooks, skills và MCP của dự án đang mở — quy
+tắc dự án của bạn trộn vào vai, và hai lần chạy ở hai máy khác nhau không còn so sánh được.
+Cơ chế thử lại trong `argplan.ts` **không cứu** được ca này: nó chỉ bắt lỗi "cờ không hỗ trợ",
+còn đây là một lỗi auth đúng khuôn dạng. Vì vậy thông báo lỗi và `doctor --health` sẽ tự nhắc
+dòng config trên thay vì để bạn tắc ở đó.
+
 **Kiểm tra nhanh trước mỗi lần dùng nghiêm túc**
 
 ```bash
@@ -324,27 +399,40 @@ lỗi riêng nó.
 
 ## Giới hạn cần biết
 
-- **Đã kiểm chứng tới đâu.** 178 test chạy trên **CLI giả**, không cần cài agent nào.
+- **Đã kiểm chứng tới đâu.** 195 test chạy trên **CLI giả**, không cần cài agent nào.
   Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
   thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
   việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
   được cũng đúng. **Adapter Claude Code chưa được xác nhận bằng một lượt thành công** —
   máy test chưa đăng nhập claude, nên chỉ xác nhận được nhánh báo lỗi `auth`. Chạy
   `doctor --health` trên máy bạn trước khi tin kết quả; nếu một cờ không được hỗ trợ,
-  `argplan.ts` tự thử lại không có nhóm cờ tuỳ chọn.
+  `argplan.ts` tự thử lại không có nhóm cờ tuỳ chọn — nhưng **chỉ** với lỗi "cờ không hỗ
+  trợ", mọi lỗi khác (kể cả auth do `--bare`) không được thử lại.
 - **Antigravity (`agy`) và Gemini CLI chưa được chạy thử lần nào** — viết theo tài liệu
   headless, chưa có máy nào cài để xác nhận.
 - **Chi phí USD chỉ Claude báo.** Codex/Gemini/Antigravity báo token hoặc không báo gì;
   tổng chi phí luôn ghi rõ có bao nhiêu lượt *không* nằm trong con số đó.
 - **Chất lượng tranh luận phụ thuộc vai có thật sự khác nhau.** Ba persona trên cùng một
   model sẽ đồng thuận giả tạo.
-- Chưa có: chế độ `consensus`/`recheck`, giao diện web, lưu session để tiếp tục giữa các
-  lần chạy (hiện phải nối bằng `-m verdict.md`).
+- **Sandbox vẫn không đồng đều giữa các CLI**, kể cả sau khi đã xin `--sandbox` cho hai CLI
+  Google: Codex được OS cưỡng chế, Claude chỉ bị chặn ở tầng công cụ, còn Google phụ thuộc
+  máy có backend sandbox hay không. Tool không san phẳng được khác biệt đó — nó chỉ bảo đảm
+  bạn **biết** lượt nào chạy ở mức nào. Bảng đầy đủ: [An toàn & riêng tư](#an-toàn--riêng-tư).
+- **Dò sandbox chỉ kiểm tra binary có tồn tại**, không gọi `docker info` (sẽ cộng vài giây
+  vào mọi lượt). Máy có `docker` nhưng daemon chết thì lượt đầu lỗi, rồi được thử lại không
+  sandbox kèm ghi chú — đúng, nhưng tốn một lượt gọi CLI.
+- **Phần hạ cấp mới chỉ chạy trên CLI giả.** Luồng dò máy + thử lại + ghi chú được kiểm bằng
+  fake CLI và một phiên chạy thật end-to-end với adapter Gemini trỏ vào fake; chuỗi thông báo
+  lỗi của `gemini`/`agy` **thật** khi thiếu docker thì vẫn chưa ai xác nhận — nếu CLI báo bằng
+  câu khác, `sandboxUnavailable` trong `argplan.ts` là chỗ cần thêm mẫu.
+- Chưa có: chế độ `consensus`/`recheck`, lưu session để tiếp tục giữa các lần chạy (hiện phải
+  nối bằng `-m verdict.md`), và kiểm soát đường dẫn **đọc** của agent (đọc vẫn không bị giới
+  hạn — xem [An toàn & riêng tư](#an-toàn--riêng-tư)).
 
 ## Phát triển
 
 ```bash
-npm test             # 178 test, không cần CLI nào
+npm test             # 195 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

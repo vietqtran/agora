@@ -20,7 +20,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DISCOVERABLE, providerDef, buildAgent } from "./providers/registry.ts";
 import type { Agent, FailureKind, ProviderDef, ProviderSpec } from "./providers/types.ts";
-import { truncate } from "./providers/types.ts";
+import { outcomeNotes, truncate } from "./providers/types.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -144,6 +144,12 @@ export type Health = {
   kind?: FailureKind;
   /** The binary that was tried, for the remediation message. */
   bin: string;
+  /**
+   * Guarantees the canary turn ran without. A runtime can be perfectly healthy and
+   * still be unsandboxed — `doctor` is the place a user looks BEFORE spending tokens,
+   * so this is where that distinction is worth the line.
+   */
+  notes?: string[];
 };
 
 /**
@@ -164,6 +170,7 @@ export async function canary(spec: ProviderSpec): Promise<Health> {
       ok: r.ok,
       detail: r.ok ? truncate(r.text, 80) || "(empty success)" : `${r.kind}: ${truncate(r.error, 100)}`,
       ...(r.ok ? {} : { kind: r.kind }),
+      ...(outcomeNotes(r).length && { notes: outcomeNotes(r) }),
       ms: performance.now() - started,
     };
   } catch (e) {
