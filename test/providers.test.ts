@@ -386,13 +386,32 @@ test("sandboxUnavailable separates a missing backend from an unknown flag", () =
 });
 
 test("the sandbox probe reports a backend, or names what is missing", async () => {
-  const none = await detectSandbox({ PATH: "" }, "linux");
+  // Every branch gets a FAKE filesystem. Faking only the platform would make this test
+  // pass on a Mac and fail on the Linux server it exists to protect — which is exactly
+  // what happened the first time it ran there.
+  const has = (...paths: string[]) => async (p: string) => paths.includes(p);
+  const nothing = async () => false;
+
+  const none = await detectSandbox({ PATH: "/usr/bin:/bin" }, "linux", nothing);
   assert.equal(none.available, false);
   assert.match(none.how, /docker\/podman/);
-  // Fake a host whose PATH has a docker binary: the directory holding the fake CLIs.
-  const withDocker = await detectSandbox({ PATH: FAKES }, "linux");
-  assert.equal(withDocker.available, false, "a fixtures dir has no docker, only fakes");
-  assert.equal((await detectSandbox({ PATH: "" }, "darwin")).available, true, "macOS ships seatbelt");
+
+  const docker = await detectSandbox({ PATH: "/usr/bin:/bin" }, "linux", has("/usr/bin/docker"));
+  assert.deepEqual(docker, { available: true, how: "docker" });
+
+  const podman = await detectSandbox({ PATH: "/opt/bin" }, "linux", has("/opt/bin/podman"));
+  assert.equal(podman.how, "podman");
+
+  const seatbelt = await detectSandbox({ PATH: "" }, "darwin", has("/usr/bin/sandbox-exec"));
+  assert.equal(seatbelt.available, true);
+  assert.match(seatbelt.how, /seatbelt/);
+
+  // A Mac without seatbelt must fall through, not claim a sandbox it does not have.
+  const macNoSeatbelt = await detectSandbox({ PATH: "/usr/bin" }, "darwin", has("/usr/bin/docker"));
+  assert.equal(macNoSeatbelt.how, "docker");
+
+  // And the default (real filesystem) path still answers without throwing on any host.
+  assert.equal((await detectSandbox({ PATH: "" }, "linux")).available, false);
 });
 
 test("explicit config beats the probe in both directions", async () => {

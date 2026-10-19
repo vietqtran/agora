@@ -24,40 +24,48 @@ export type SandboxSupport = {
   how: string;
 };
 
+/**
+ * "Is this an executable file?" — injectable so the branches can be tested on any host.
+ * Faking only the platform string would leave the test asserting against the REAL
+ * filesystem, i.e. passing on a Mac and failing on the Linux box it is meant to protect.
+ */
+export type IsExecutable = (path: string) => Promise<boolean>;
+
+const executable: IsExecutable = async (path) => {
+  try {
+    await access(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** Probed once per process: PATH does not change under us, and turns run in parallel. */
 let probe: Promise<SandboxSupport> | null = null;
 
-async function onPath(cmd: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+async function onPath(cmd: string, env: NodeJS.ProcessEnv, isExec: IsExecutable): Promise<boolean> {
   for (const dir of (env.PATH ?? "").split(delimiter)) {
-    if (!dir) continue;
-    try {
-      await access(join(dir, cmd), constants.X_OK);
-      return true;
-    } catch {
-      // Next directory. An unreadable PATH entry is normal, not an error.
-    }
+    // An unreadable or absent PATH entry is normal, not an error.
+    if (dir && (await isExec(join(dir, cmd)))) return true;
   }
   return false;
 }
 
-/** `plat` is a parameter so a test can exercise the no-backend branch on any host. */
+/** `plat` and `isExec` are parameters so every branch is testable on any host. */
 export async function detectSandbox(
   env: NodeJS.ProcessEnv = process.env,
   plat: string = platform(),
+  isExec: IsExecutable = executable,
 ): Promise<SandboxSupport> {
-  // macOS seatbelt lives at a fixed path and is not always on PATH.
+  // macOS seatbelt lives at a fixed path and is not always on PATH. A Mac without it
+  // falls through to the container runtimes rather than claiming a sandbox it lacks.
   if (plat === "darwin") {
     for (const p of ["/usr/bin/sandbox-exec", "/usr/sbin/sandbox-exec"]) {
-      try {
-        await access(p, constants.X_OK);
-        return { available: true, how: "macOS seatbelt (sandbox-exec)" };
-      } catch {
-        // Fall through to the container runtimes.
-      }
+      if (await isExec(p)) return { available: true, how: "macOS seatbelt (sandbox-exec)" };
     }
   }
   for (const cmd of ["docker", "podman"]) {
-    if (await onPath(cmd, env)) return { available: true, how: cmd };
+    if (await onPath(cmd, env, isExec)) return { available: true, how: cmd };
   }
   return {
     available: false,
