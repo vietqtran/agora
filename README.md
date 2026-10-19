@@ -104,6 +104,7 @@ Không có bước build, không có dependency: một file HTML tĩnh và `node
                  → orchestrator định tuyến câu hỏi tới đúng người ở vòng sau
                  → VÒNG CUỐI không hỏi nữa (sẽ không còn ai trả lời): mỗi vai
                    chốt lại giữ gì, nhượng gì, còn gì chưa đủ cơ sở
+                   (`--rounds 0` thì lượt MỞ ĐẦU cũng không hỏi, vì cùng lý do)
                         ↓
 3. PHÁN QUYẾT    chủ tọa đọc TOÀN BỘ biên bản (không được chạm repo, phải hỏi nếu
                  không kết luận được), chỉ ra cả những CÂU HỎI BỊ NÉ
@@ -444,7 +445,7 @@ lỗi riêng nó.
 
 ## Giới hạn cần biết
 
-- **Đã kiểm chứng tới đâu.** 199 test chạy trên **CLI giả**, không cần cài agent nào.
+- **Đã kiểm chứng tới đâu.** 200 test chạy trên **CLI giả**, không cần cài agent nào.
   Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
   thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
   việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
@@ -484,7 +485,7 @@ lỗi riêng nó.
 ## Phát triển
 
 ```bash
-npm test             # 199 test, không cần CLI nào
+npm test             # 200 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

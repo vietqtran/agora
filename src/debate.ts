@@ -191,7 +191,7 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
   const playTurn = async (
     seat: Seat,
     phase: Phase,
-    extra: { round?: number; lastRound?: boolean; myInbox?: Question[]; transcript?: string; verdict?: string },
+    extra: { round?: number; noFollowUp?: boolean; myInbox?: Question[]; transcript?: string; verdict?: string },
   ): Promise<Turn> => {
     // `material` (shared) is only attached to the OPENING turn: from the first
     // cross-examination round onward it is already inside the transcript snapshot, and
@@ -212,7 +212,7 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
       language,
       maxQuestions,
       ...(extra.round !== undefined && { round: extra.round }),
-      ...(extra.lastRound && { lastRound: true }),
+      ...(extra.noFollowUp && { noFollowUp: true }),
     });
 
     emit({ type: "turn-start", roleId: seat.role.id, label: `${seat.role.name} · ${seat.binding.providerLabel}` });
@@ -269,7 +269,8 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
 
   // --- Phase 1: opening statements, in parallel, mutually blind ----------------------
   emit({ type: "phase", phase: "opening", detail: `${seats.length} chuyên gia phát biểu độc lập` });
-  const openings = await Promise.all(seats.map((s) => playTurn(s, "opening", {})));
+  // With rounds: 0 the opening is also the last word, so it must not ask either.
+  const openings = await Promise.all(seats.map((s) => playTurn(s, "opening", rounds === 0 ? { noFollowUp: true } : {})));
   openings.forEach(record);
 
   const okCount = openings.filter((t) => t.outcome.ok).length;
@@ -314,7 +315,7 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
         playTurn(s, "cross-exam", {
           round,
           // Nobody runs after the last round, so this turn must close rather than ask.
-          ...(round === rounds && { lastRound: true }),
+          ...(round === rounds && { noFollowUp: true }),
           transcript: snapshot,
           myInbox: inbox(pending, s.role.id),
         }),

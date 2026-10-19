@@ -378,6 +378,24 @@ test("the last cross-exam round stops asking questions nobody can answer", async
   assert.match(prompts[2], /không hỏi thêm/);
 });
 
+test("rounds: 0 makes the opening the last word, so it must not ask either", async () => {
+  // Same bug, second site: with no cross-exam round, an opening question has nowhere to
+  // go. Seen on a real run — both openings produced a question nobody could receive.
+  const a = seat("a", "p1", () => ok("ý kiến A"));
+  await runDebate({
+    topic: "t",
+    seats: [a, seat("b", "p2", () => ok("ý kiến B"))],
+    rounds: 0,
+    language: "vi",
+    maxQuestions: 3,
+    skipSynthesis: true,
+  });
+  const prompts = (a.agent as unknown as { prompts: string[] }).prompts;
+  assert.equal(prompts.length, 1);
+  assert.doesNotMatch(prompts[0], /QUESTIONS/);
+  assert.match(prompts[0], /không có vòng chất vấn/);
+});
+
 test("the live stream carries degradation, so a UI cannot draw a clean turn", async () => {
   // A green tick in the terminal or the web pipeline is exactly where a lost sandbox
   // would otherwise disappear: the answer arrived, so the seat looks fine.

@@ -46,11 +46,11 @@ export type PromptCtx = {
   maxQuestions: number;
   round?: number;
   /**
-   * Last cross-examination round. Questions asked here can never be routed — the next
-   * phase is the verdict — so asking for them burns tokens AND hands the judge a pile of
-   * unanswerable questions under a heading that reads "dodged".
+   * No turn after this one can answer a question: the last cross-examination round, or an
+   * opening with `rounds: 0`. Asking anyway burns tokens AND hands the judge a pile of
+   * unanswerable questions under a heading that reads "dodged" — observed on a real run.
    */
-  lastRound?: boolean;
+  noFollowUp?: boolean;
   /** Judge's determination, for the synthesis phase. */
   verdict?: string;
 };
@@ -60,7 +60,8 @@ function marker(ctx: PromptCtx): string {
   // ASK says whether this turn was invited to pose questions. The mock runtime reads
   // markers, not prose, so a mock that answers a last-round prompt stays faithful to it
   // instead of volunteering questions the real prompt forbade.
-  const ask = ctx.phase === "opening" || (ctx.phase === "cross-exam" && !ctx.lastRound) ? 1 : 0;
+  const asks = ctx.phase === "opening" || ctx.phase === "cross-exam";
+  const ask = asks && !ctx.noFollowUp ? 1 : 0;
   return `<!-- [AGORA-PHASE:${ctx.phase}] [AGORA-ROLE:${ctx.role.id}] [AGORA-PEERS:${ctx.peers.join(",")}] [AGORA-ASK:${ask}] -->`;
 }
 
@@ -167,9 +168,18 @@ function openingPrompt(ctx: PromptCtx): string {
       `4. **Điều bạn chưa biết** — những khoảng trống bạn cần vai khác bù vào.`,
       ``,
       `Viết gọn và dày thông tin. Không lặp lại đề bài.`,
+      ...(ctx.noFollowUp
+        ? [
+            ``,
+            `**Phiên này không có vòng chất vấn** (\`rounds: 0\`), nên **không hỏi ai** — sẽ`,
+            `không có lượt nào trả lời. Hãy kết luận đầy đủ ngay trong lượt này.`,
+          ]
+        : []),
     ].join("\n"),
     honesty(ctx.language),
-    questionsContract(ctx),
+    // With rounds: 0 there is no round to route an opening question to, so the same rule
+    // as the final cross-exam round applies here.
+    ctx.noFollowUp ? undefined : questionsContract(ctx),
     marker(ctx),
   ]);
 }
@@ -198,7 +208,7 @@ function crossExamPrompt(ctx: PromptCtx): string {
       ``,
       `**Không lặp lại** những gì đã được nói. Nếu bạn không có gì mới để bổ sung ở một`,
       `mục nào, hãy bỏ qua mục đó thay vì diễn đạt lại ý cũ.`,
-      ...(ctx.lastRound
+      ...(ctx.noFollowUp
         ? [
             ``,
             `**Đây là vòng chất vấn CUỐI.** Sau lượt này là phán quyết, nên **không hỏi thêm**`,
@@ -211,7 +221,7 @@ function crossExamPrompt(ctx: PromptCtx): string {
     honesty(ctx.language),
     // No QUESTIONS block in the last round: an unroutable question is not a cheap
     // leftover, it reaches the judge looking like a question someone refused to answer.
-    ctx.lastRound ? undefined : questionsContract(ctx),
+    ctx.noFollowUp ? undefined : questionsContract(ctx),
     marker(ctx),
   ]);
 }
