@@ -202,13 +202,19 @@ async function cmdDoctor(p: Parsed): Promise<number> {
     specs.set(`${b.provider}::${spec.model ?? "(mặc định)"}`, spec);
   }
   const healths = await Promise.all([...specs.values()].map((spec) => canary(spec)));
+  // Two models on the same runtime report the same host-level caveat; say it once.
+  const healthNotes = new Set<string>();
   let bad = 0;
   for (const h of healths) {
     const mark = h.ok ? c.green("✓") : c.red("✗");
     if (!h.ok) bad++;
     log(`  ${mark} ${h.label.padEnd(26)} ${c.dim(fmtSecs(h.ms).padStart(5))}  ${h.ok ? c.dim(h.detail) : c.red(h.detail)}`);
     if (!h.ok && h.kind) log(`      ${c.yellow("→ cách sửa: ")}${c.dim(remedy(h.kind, h.provider, h.bin))}`);
-    for (const n of h.notes ?? []) log(`      ${c.yellow("⚠ hạ cấp: ")}${c.yellow(n)}`);
+    for (const n of h.notes ?? []) {
+      if (healthNotes.has(n)) continue;
+      healthNotes.add(n);
+      log(`      ${c.yellow("⚠ hạ cấp: ")}${c.yellow(n)}`);
+    }
   }
   log(`\n${healths.length - bad}/${healths.length} runtime trả lời được — ${bad === 0 ? c.green("SẴN SÀNG") : c.red("CHƯA SẴN SÀNG")}`);
   return bad === 0 && result.unfilled.length === 0 ? 0 : 1;
@@ -351,6 +357,10 @@ async function cmdDebate(p: Parsed): Promise<number> {
   });
   const repoPath = one(p, "repo");
 
+  // A note like "this machine has no API key" is a fact about the MACHINE, not the turn,
+  // so it would otherwise print under every single turn. Say it once here; the transcript
+  // and run.json keep the per-turn record, and the summary below counts the turns.
+  const notesSeen = new Set<string>();
   const onEvent = (e: DebateEvent) => {
     if (quiet) return;
     if (e.type === "phase") {
@@ -362,7 +372,11 @@ async function cmdDebate(p: Parsed): Promise<number> {
       const mark = e.ok ? c.green("✓") : c.red("✗");
       log(`  ${mark} ${e.label} ${c.dim(`(${fmtSecs(e.ms)}) ${e.detail}`)}`);
       // A degraded turn still prints a green tick, so the caveat has to print too.
-      for (const n of e.notes ?? []) log(`      ${c.yellow("⚠ hạ cấp: ")}${c.yellow(n)}`);
+      for (const n of e.notes ?? []) {
+        if (notesSeen.has(n)) continue;
+        notesSeen.add(n);
+        log(`      ${c.yellow("⚠ hạ cấp: ")}${c.yellow(n)}`);
+      }
     } else if (e.type === "questions") {
       log(c.dim(e.log.split("\n").map((l) => `    ${l}`).join("\n")));
     } else if (e.type === "warn") {
@@ -403,7 +417,10 @@ async function cmdDebate(p: Parsed): Promise<number> {
     for (const w of written) log(`  ${c.green("✓")} ${w}`);
     log(
       c.dim(
-        `  ${cost.ok} lượt OK${cost.failed ? `, ${cost.failed} lượt lỗi` : ""} · ` +
+        `  ${cost.ok} lượt OK${cost.failed ? `, ${cost.failed} lượt lỗi` : ""}` +
+          // The per-turn warnings above are deduplicated, so the COUNT has to live here
+          // or a reader cannot tell whether one turn or every turn ran degraded.
+          `${cost.degradedTurns ? `, ${cost.degradedTurns} lượt hạ cấp` : ""} · ` +
           `${fmtSecs(cost.totalMs)} · chi phí đã biết $${cost.knownCostUsd.toFixed(4)}` +
           `${cost.unpricedTurns ? ` (+${cost.unpricedTurns} lượt không báo giá USD)` : ""}`,
       ),

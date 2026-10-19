@@ -102,6 +102,8 @@ Không có bước build, không có dependency: một file HTML tĩnh và `node
 2. CHẤT VẤN      N vòng. Mỗi agent: trả lời câu hỏi gửi riêng cho mình trước, rồi
    (có địa chỉ)  phản biện cụ thể, rồi gửi câu hỏi mới dạng  @vai: câu hỏi
                  → orchestrator định tuyến câu hỏi tới đúng người ở vòng sau
+                 → VÒNG CUỐI không hỏi nữa (sẽ không còn ai trả lời): mỗi vai
+                   chốt lại giữ gì, nhượng gì, còn gì chưa đủ cơ sở
                         ↓
 3. PHÁN QUYẾT    chủ tọa đọc TOÀN BỘ biên bản (không được chạm repo, phải hỏi nếu
                  không kết luận được), chỉ ra cả những CÂU HỎI BỊ NÉ
@@ -338,13 +340,18 @@ Lượt như thế gọi là **hạ cấp**, và nó được ghi ở **bốn** 
 y một lượt bình thường:
 
 ```
-terminal       ⚠ hạ cấp: máy không cấp được sandbox nên lượt này đã chạy LẠI không có
-               các cờ tuỳ chọn (--sandbox --approval-mode) — mất: sandbox (--sandbox)…
-transcript.md  > ⚠️ HẠ CẤP: … ngay trên câu trả lời của lượt đó
-               + chân trang đếm: "2 lượt hạ cấp"
-run.json       turns[].notes: [...]  ·  cost.degradedTurns: 2
+terminal       ⚠ hạ cấp: không có --bare (máy chỉ đăng nhập OAuth…) — persona có thể…
+               + dòng tổng kết đếm: "5 lượt OK, 3 lượt hạ cấp"
+transcript.md  > ⚠️ HẠ CẤP: … ngay trên câu trả lời của lượt đó (từng lượt, đầy đủ)
+               + chân trang đếm: "3 lượt hạ cấp"
+run.json       turns[].notes: [...]  ·  cost.degradedTurns: 3
 giao diện web  thẻ của vai đó viền vàng, kèm dòng cảnh báo
 ```
+
+Trong terminal, mỗi ghi chú **chỉ in một lần cho cả phiên**: "máy này không có API key" là
+sự thật về *máy*, không phải về *lượt*, nên in lại dưới từng lượt chỉ là tiếng ồn. Số lượt
+hạ cấp thì vẫn nằm ở dòng tổng kết, còn `transcript.md` và `run.json` vẫn giữ đủ theo từng
+lượt — đó là bản kiểm toán.
 
 Những mất mát được gọi tên, không phải chỉ liệt kê cờ:
 
@@ -379,9 +386,17 @@ riêng cho agora:
 ```
 
 **`auth: ...` nhưng `claude auth status` nói đã đăng nhập**
-Đây là `--bare`, và không phải suy đoán — `claude --help` (2.1.301) ghi: *"Anthropic auth is
-strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never
-read)"*. Bình thường bạn **không gặp lỗi này**: không thấy API key thì tool tự bỏ `--bare`
+Đây là `--bare`, và đã **kiểm chứng bằng thực nghiệm** — cùng một máy, cùng tài khoản
+claude.ai, chỉ khác một cờ:
+
+```
+claude        -p "..."  →  chạy thật, duration_api_ms=1656, total_cost_usd=0.0749
+claude --bare -p "..."  →  exit 1, is_error=true, 0 token,
+                           result = "Not logged in · Please run /login"
+```
+
+Khớp với chính tài liệu của cờ đó — `claude --help` (2.1.301): *"Anthropic auth is strictly
+ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read)"*. Bình thường bạn **không gặp lỗi này**: không thấy API key thì tool tự bỏ `--bare`
 và ghi chú lượt đó là hạ cấp. Lỗi này chỉ xảy ra khi `--bare` *có* được truyền:
 
 - bạn đặt `"bare": true` mà máy không có key dùng được, hoặc
@@ -429,12 +444,16 @@ lỗi riêng nó.
 
 ## Giới hạn cần biết
 
-- **Đã kiểm chứng tới đâu.** 197 test chạy trên **CLI giả**, không cần cài agent nào.
+- **Đã kiểm chứng tới đâu.** 198 test chạy trên **CLI giả**, không cần cài agent nào.
   Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
   thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
   việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
-  được cũng đúng. **Adapter Claude Code chưa được xác nhận bằng một lượt thành công** —
-  máy test chưa đăng nhập claude, nên chỉ xác nhận được nhánh báo lỗi `auth`. Chạy
+  được cũng đúng. **Adapter Claude Code đã được xác nhận**: trên Ubuntu 24.04 với
+  claude 2.1.301 đăng nhập bằng tài khoản claude.ai, đã chạy trọn một phiên **hai hãng
+  thật** (Claude Code làm kiến trúc sư, Codex làm chuyên viên nghiên cứu, Claude làm chủ
+  tọa): 5 lượt OK, 12 câu hỏi định tuyến đúng địa chỉ, `STATUS: NEEDS_INPUT` chặn việc soạn
+  hồ sơ, chi phí USD báo đúng ($0.5087 cho 3 lượt Claude, 2 lượt Codex ghi rõ là không báo
+  giá). Chạy
   `doctor --health` trên máy bạn trước khi tin kết quả; nếu một cờ không được hỗ trợ,
   `argplan.ts` tự thử lại không có nhóm cờ tuỳ chọn — nhưng **chỉ** với lỗi "cờ không hỗ
   trợ" và lỗi sandbox, mọi lỗi khác (kể cả auth do `--bare`) không được thử lại.
@@ -465,7 +484,7 @@ lỗi riêng nó.
 ## Phát triển
 
 ```bash
-npm test             # 197 test, không cần CLI nào
+npm test             # 198 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

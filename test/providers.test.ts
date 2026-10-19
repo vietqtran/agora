@@ -133,7 +133,9 @@ test("claude: --bare rides on the api key, and bare:false always removes it", as
   );
   assert.ok(rOauth.ok, "an OAuth login must produce a turn, not an auth wall");
   assert.match(rOauth.text, /bare=false/);
-  assert.match(outcomeNotes(rOauth).join(" "), /KHÔNG có --bare/);
+  assert.match(outcomeNotes(rOauth).join(" "), /không có --bare/);
+  // One line: this note repeats on every Claude turn, so it must not be a paragraph.
+  assert.ok(outcomeNotes(rOauth)[0].length < 200, "ghi chú lặp mỗi lượt thì phải ngắn");
 
   const off = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs"), bare: false });
   const rOff = await withEnv({ ANTHROPIC_API_KEY: "sk-test" }, () => withMode("success", () => off.run("hỏi", CWD)));

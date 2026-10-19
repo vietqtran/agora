@@ -354,6 +354,30 @@ test("the artifact view keeps failures and cost; the context view hides the plum
   assert.match(ctx, /không đưa ra ý kiến/);
 });
 
+test("the last cross-exam round stops asking questions nobody can answer", async () => {
+  // Observed on a real two-vendor run: 6 of the 12 questions produced came from the
+  // FINAL round, so nobody ever received them — and the judge is asked for a "dodged
+  // questions" section, which is where unroutable questions end up looking refused.
+  const a = seat("a", "p1", () => ok("ý kiến A"));
+  const b = seat("b", "p2", () => ok("ý kiến B"));
+  await runDebate({
+    topic: "t",
+    seats: [a, b],
+    rounds: 2,
+    language: "vi",
+    maxQuestions: 3,
+    skipSynthesis: true,
+  });
+  const prompts = (a.agent as unknown as { prompts: string[] }).prompts;
+  // [0] opening, [1] cross-exam round 1, [2] cross-exam round 2 (the last).
+  assert.equal(prompts.length, 3);
+  assert.match(prompts[0], /QUESTIONS/, "mở đầu vẫn phải hỏi");
+  assert.match(prompts[1], /QUESTIONS/, "vòng giữa vẫn phải hỏi");
+  assert.doesNotMatch(prompts[2], /QUESTIONS/, "vòng cuối thì không");
+  assert.match(prompts[2], /vòng chất vấn CUỐI/);
+  assert.match(prompts[2], /không hỏi thêm/);
+});
+
 test("the live stream carries degradation, so a UI cannot draw a clean turn", async () => {
   // A green tick in the terminal or the web pipeline is exactly where a lost sandbox
   // would otherwise disappear: the answer arrived, so the seat looks fine.

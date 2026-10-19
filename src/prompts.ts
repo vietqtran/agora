@@ -45,6 +45,12 @@ export type PromptCtx = {
   language: string;
   maxQuestions: number;
   round?: number;
+  /**
+   * Last cross-examination round. Questions asked here can never be routed — the next
+   * phase is the verdict — so asking for them burns tokens AND hands the judge a pile of
+   * unanswerable questions under a heading that reads "dodged".
+   */
+  lastRound?: boolean;
   /** Judge's determination, for the synthesis phase. */
   verdict?: string;
 };
@@ -188,9 +194,20 @@ function crossExamPrompt(ctx: PromptCtx): string {
       ``,
       `**Không lặp lại** những gì đã được nói. Nếu bạn không có gì mới để bổ sung ở một`,
       `mục nào, hãy bỏ qua mục đó thay vì diễn đạt lại ý cũ.`,
+      ...(ctx.lastRound
+        ? [
+            ``,
+            `**Đây là vòng chất vấn CUỐI.** Sau lượt này là phán quyết, nên **không hỏi thêm**`,
+            `câu nào nữa — sẽ không còn ai trả lời. Thay vào đó, kết lại: điểm nào bạn vẫn giữ`,
+            `nguyên sau khi nghe phản biện, điểm nào bạn nhượng, và điều gì còn chưa đủ cơ sở`,
+            `để kết luận.`,
+          ]
+        : []),
     ].join("\n"),
     honesty(ctx.language),
-    questionsContract(ctx),
+    // No QUESTIONS block in the last round: an unroutable question is not a cheap
+    // leftover, it reaches the judge looking like a question someone refused to answer.
+    ctx.lastRound ? undefined : questionsContract(ctx),
     marker(ctx),
   ]);
 }

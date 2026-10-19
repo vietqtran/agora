@@ -191,7 +191,7 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
   const playTurn = async (
     seat: Seat,
     phase: Phase,
-    extra: { round?: number; myInbox?: Question[]; transcript?: string; verdict?: string },
+    extra: { round?: number; lastRound?: boolean; myInbox?: Question[]; transcript?: string; verdict?: string },
   ): Promise<Turn> => {
     // `material` (shared) is only attached to the OPENING turn: from the first
     // cross-examination round onward it is already inside the transcript snapshot, and
@@ -212,6 +212,7 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
       language,
       maxQuestions,
       ...(extra.round !== undefined && { round: extra.round }),
+      ...(extra.lastRound && { lastRound: true }),
     });
 
     emit({ type: "turn-start", roleId: seat.role.id, label: `${seat.role.name} · ${seat.binding.providerLabel}` });
@@ -310,7 +311,13 @@ export async function runDebate(input: DebateInput): Promise<DebateResult> {
     const snapshot = context.join("\n");
     const reactions = await Promise.all(
       seats.map((s) =>
-        playTurn(s, "cross-exam", { round, transcript: snapshot, myInbox: inbox(pending, s.role.id) }),
+        playTurn(s, "cross-exam", {
+          round,
+          // Nobody runs after the last round, so this turn must close rather than ask.
+          ...(round === rounds && { lastRound: true }),
+          transcript: snapshot,
+          myInbox: inbox(pending, s.role.id),
+        }),
       ),
     );
     reactions.forEach(record);

@@ -64,15 +64,12 @@ export function decideBare(
   configured: boolean | undefined,
   env: NodeJS.ProcessEnv,
 ): { on: boolean; note: string | null } {
-  if (configured === false) return { on: false, note: `lượt này KHÔNG có --bare vì cấu hình đặt "bare": false — ${CONTAMINATION}` };
+  if (configured === false) return { on: false, note: `không có --bare (cấu hình đặt "bare": false) — ${CONTAMINATION}` };
   if (configured === true) return { on: true, note: null };
   if (keyAuthAvailable(env)) return { on: true, note: null };
-  return {
-    on: false,
-    note:
-      "lượt này KHÔNG có --bare vì máy không có ANTHROPIC_API_KEY và --bare thì không đọc " +
-      `OAuth/keychain — ${CONTAMINATION}. Muốn có lại lớp cách ly: đặt ANTHROPIC_API_KEY, hoặc "bare": true nếu dùng apiKeyHelper/Bedrock/Vertex`,
-  };
+  // One line, and no remediation paragraph: this note repeats on EVERY Claude turn of
+  // the run, so the cure for the host belongs in `doctor --health` and the README.
+  return { on: false, note: `không có --bare (máy chỉ đăng nhập OAuth, --bare không đọc OAuth/keychain) — ${CONTAMINATION}; đặt ANTHROPIC_API_KEY để có lại` };
 }
 
 // Only reachable when --bare WAS passed: either a key exists and is being refused, or the
