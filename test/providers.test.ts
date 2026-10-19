@@ -7,6 +7,7 @@ import { claudeProvider, decideBare, keyAuthAvailable } from "../src/providers/c
 import { codexProvider } from "../src/providers/codex.ts";
 import { geminiProvider, antigravityProvider } from "../src/providers/google.ts";
 import { customProvider, buildArgs, dotPath, extractText } from "../src/providers/custom.ts";
+import { mockProvider, asksQuestions } from "../src/providers/mock.ts";
 import { unsupportedFlag, sandboxUnavailable, flagOrSandbox, flatten } from "../src/providers/argplan.ts";
 import { detectSandbox, wantSandbox } from "../src/providers/sandbox.ts";
 import { classify, outcomeNotes, remedy } from "../src/providers/types.ts";
@@ -467,6 +468,26 @@ test("explicit config beats the probe in both directions", async () => {
   const off = await wantSandbox(false, { PATH: "" });
   assert.equal(off.on, false);
   assert.match(off.note ?? "", /cấu hình/, "an opt-out must still be recorded on the turn");
+});
+
+test("the mock only asks questions when the prompt invited them", async () => {
+  // --dry-run is how a user sees the protocol before paying for it, so the mock must
+  // obey the same contract the real prompt states — including the last round, where
+  // asking is forbidden because nobody runs afterwards.
+  const agent = mockProvider.make({ provider: "mock" });
+  const marker = (ask: 0 | 1) =>
+    `<!-- [AGORA-PHASE:cross-exam] [AGORA-ROLE:architect] [AGORA-PEERS:architect,researcher] [AGORA-ASK:${ask}] -->`;
+
+  assert.equal(asksQuestions(marker(1)), true);
+  assert.equal(asksQuestions(marker(0)), false);
+  // A prompt from an older build with no ASK marker must not invent questions either.
+  assert.equal(asksQuestions("<!-- [AGORA-PHASE:cross-exam] -->"), false);
+
+  const invited = await agent.run(marker(1), CWD);
+  assert.ok(invited.ok && /QUESTIONS/.test(invited.text));
+  const lastRound = await agent.run(marker(0), CWD);
+  assert.ok(lastRound.ok);
+  assert.doesNotMatch(lastRound.text, /QUESTIONS/);
 });
 
 test("unsupportedFlag recognises the common phrasings and ignores unrelated errors", () => {

@@ -444,7 +444,7 @@ lỗi riêng nó.
 
 ## Giới hạn cần biết
 
-- **Đã kiểm chứng tới đâu.** 198 test chạy trên **CLI giả**, không cần cài agent nào.
+- **Đã kiểm chứng tới đâu.** 199 test chạy trên **CLI giả**, không cần cài agent nào.
   Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
   thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
   việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
@@ -484,7 +484,7 @@ lỗi riêng nó.
 ## Phát triển
 
 ```bash
-npm test             # 198 test, không cần CLI nào
+npm test             # 199 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

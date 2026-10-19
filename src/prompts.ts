@@ -57,7 +57,11 @@ export type PromptCtx = {
 
 /** Machine-readable trailer: lets the in-process mock runtime and logs identify a turn. */
 function marker(ctx: PromptCtx): string {
-  return `<!-- [AGORA-PHASE:${ctx.phase}] [AGORA-ROLE:${ctx.role.id}] [AGORA-PEERS:${ctx.peers.join(",")}] -->`;
+  // ASK says whether this turn was invited to pose questions. The mock runtime reads
+  // markers, not prose, so a mock that answers a last-round prompt stays faithful to it
+  // instead of volunteering questions the real prompt forbade.
+  const ask = ctx.phase === "opening" || (ctx.phase === "cross-exam" && !ctx.lastRound) ? 1 : 0;
+  return `<!-- [AGORA-PHASE:${ctx.phase}] [AGORA-ROLE:${ctx.role.id}] [AGORA-PEERS:${ctx.peers.join(",")}] [AGORA-ASK:${ask}] -->`;
 }
 
 /** The provenance contract. Repeated in every phase because it is the whole ballgame. */

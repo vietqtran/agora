@@ -20,6 +20,11 @@ export function roleOf(prompt: string): string {
   return m ? m[1] : "unknown";
 }
 
+/** Was this turn invited to pose questions? The last round is explicitly not. */
+export function asksQuestions(prompt: string): boolean {
+  return /\[AGORA-ASK:1\]/.test(prompt);
+}
+
 /** The addressable peers the engine stamped into the prompt. */
 export function peersOf(prompt: string): string[] {
   const m = prompt.match(/\[AGORA-PEERS:([a-z0-9_,-]*)\]/);
@@ -31,6 +36,11 @@ function canned(prompt: string, label: string): string {
   const role = roleOf(prompt);
   // Address a real peer so the cross-examination router has something to route.
   const target = peersOf(prompt).find((p) => p !== role) ?? "judge";
+  // Only ask when the prompt asked us to. A mock that volunteers questions anyway makes
+  // --dry-run lie about the protocol — notably in the LAST round, where the real prompt
+  // says "do not ask, nobody runs after you".
+  const asked = asksQuestions(prompt);
+  const questions = (q: string) => (asked ? ["", `QUESTIONS`, `@${target}: ${q}`] : []);
 
   if (phase === "opening") {
     return [
@@ -38,9 +48,7 @@ function canned(prompt: string, label: string): string {
       ``,
       `- Nhận định 1 từ góc nhìn ${role}.`,
       `- Nhận định 2, có đánh đổi rõ ràng.`,
-      ``,
-      `QUESTIONS`,
-      `@${target}: Giả định cốt lõi của bạn có đứng vững khi quy mô tăng 10x không?`,
+      ...questions("Giả định cốt lõi của bạn có đứng vững khi quy mô tăng 10x không?"),
     ].join("\n");
   }
   if (phase === "cross-exam") {
@@ -49,9 +57,7 @@ function canned(prompt: string, label: string): string {
       ``,
       `**Đồng ý:** điểm chính đã được chứng minh.`,
       `**Không đồng ý:** chi phí vận hành bị đánh giá thấp.`,
-      ``,
-      `QUESTIONS`,
-      `@${target}: Bạn định đo lường điều đó bằng chỉ số nào?`,
+      ...questions("Bạn định đo lường điều đó bằng chỉ số nào?"),
     ].join("\n");
   }
   if (phase === "verdict") {
