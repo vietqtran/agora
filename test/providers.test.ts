@@ -511,8 +511,18 @@ test("an expired session is classified as auth", () => {
   assert.equal(classify("You are not logged in"), "auth");
 });
 
+test("a 429 is a rate limit, not an empty answer", () => {
+  // Verbatim from codex 0.145.0 when two roles on one ChatGPT account ran in parallel.
+  assert.equal(classify("exceeded retry limit, last status: 429 Too Many Requests"), "rate-limit");
+  assert.equal(classify("rate limit reached"), "rate-limit");
+  assert.equal(classify("RESOURCE_EXHAUSTED"), "rate-limit");
+  // Falling back to "empty" sends the user to "run the command by hand", which tells
+  // them nothing about the real fix.
+  assert.equal(classify("exceeded retry limit, last status: 429 Too Many Requests", "empty"), "rate-limit");
+  assert.match(remedy("rate-limit", "codex", "codex"), /SONG SONG/);
+});
+
 test("ordinary content is not mistaken for either", () => {
-  assert.equal(classify("rate limit reached"), "other");
   // "author" must not trip the auth pattern.
   assert.equal(classify("the author of this model proposal"), "other");
   assert.equal(classify("stream broke", "empty"), "empty");

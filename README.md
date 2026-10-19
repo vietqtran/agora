@@ -361,9 +361,9 @@ toán cho bạn, không phải thứ để agent quay sang bàn về cờ dòng 
 
 ## Xử lý sự cố
 
-Hai lỗi dưới đây gặp thật khi chạy trên Ubuntu 24.04 (claude 2.1.292, codex 0.145.0).
-Cả hai đều là lỗi **cấu hình máy**, không phải lỗi tool — nhưng chúng trông giống nhau
-từ xa và cần hai cách sửa trái ngược, nên `doctor --health` phân biệt rồi in thẳng cách sửa.
+Những lỗi dưới đây **gặp thật** khi chạy trên Ubuntu 24.04 (claude 2.1.292 và 2.1.301,
+codex 0.145.0). Không có cái nào là lỗi tool — nhưng từ xa chúng trông giống nhau và cần
+những cách sửa trái ngược, nên `doctor --health` phân biệt rồi in thẳng cách sửa.
 
 **`auth: OAuth session expired and could not be refreshed`**
 CLI có đó nhưng chưa đăng nhập. Kiểm tra: `claude auth status` → `"loggedIn": false`.
@@ -400,6 +400,22 @@ Cơ chế thử lại trong `argplan.ts` **không cứu** được ca này: nó 
 và lỗi sandbox, còn đây là một lỗi auth đúng khuôn dạng. Vì vậy thông báo lỗi và
 `doctor --health` tự nhắc hai dòng trên thay vì để bạn tắc ở đó.
 
+**`exceeded retry limit, last status: 429 Too Many Requests`**
+Tài khoản bị giới hạn tần suất, và nguyên nhân thường là **thiết kế của chính tool**: pha mở
+đầu gọi tất cả các vai **song song** (để không vai nào nhìn bài vai khác). Nếu nhiều vai dùng
+chung một tài khoản, đó là nhiều request đồng thời trên cùng một hạn mức. Đã tái hiện trần:
+hai `codex exec` chạy song song trên một tài khoản ChatGPT → một cái trả lời, một cái 429.
+
+Và 429 ở pha mở đầu thường **huỷ cả phiên**, vì dưới 2 chuyên gia phát biểu được thì tool
+không dựng tranh luận giả. Cách xử lý:
+
+- **Đúng nhất:** mỗi vai một CLI **khác hãng** — vừa hết đụng hạn mức, vừa là điều kiện để
+  tranh luận có giá trị ngay từ đầu.
+- Hoặc giảm số vai (`--roles architect,domain-expert`), hoặc chờ vài phút rồi chạy lại.
+
+Tool **không tự thử lại** khi gặp 429: thêm backoff vào một pha song song sẽ kéo dài phiên
+một cách khó đoán, nên nó báo đúng tên lỗi và để bạn quyết.
+
 **Kiểm tra nhanh trước mỗi lần dùng nghiêm túc**
 
 ```bash
@@ -413,7 +429,7 @@ lỗi riêng nó.
 
 ## Giới hạn cần biết
 
-- **Đã kiểm chứng tới đâu.** 196 test chạy trên **CLI giả**, không cần cài agent nào.
+- **Đã kiểm chứng tới đâu.** 197 test chạy trên **CLI giả**, không cần cài agent nào.
   Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
   thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
   việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
@@ -449,7 +465,7 @@ lỗi riêng nó.
 ## Phát triển
 
 ```bash
-npm test             # 196 test, không cần CLI nào
+npm test             # 197 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

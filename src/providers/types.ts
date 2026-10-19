@@ -25,6 +25,7 @@ export type FailureKind =
   | "not-runnable" // binary missing / shadowed shim — a setup problem
   | "auth" // CLI runs but is not logged in
   | "model" // the requested model is not available to this account
+  | "rate-limit" // 429 — the account is being asked for too much at once
   | "empty" // exit 0 with nothing usable
   | "other";
 
@@ -172,6 +173,13 @@ export function classify(stderr: string, fallback: FailureKind = "other"): Failu
   if (/not logged in|unauthenticated|unauthorized|session expired|please (log|sign) in|\blogin\b|\bauth\b/.test(s) && !/author/.test(s)) {
     return "auth";
   }
+  // Observed on a real run: two roles sharing one ChatGPT account call the CLI in
+  // PARALLEL during the opening phase, and one of them comes back 429. Without this it
+  // lands in "empty", whose remedy ("run the command by hand") is useless advice —
+  // the fix is to wait, or to stop pointing several roles at one account.
+  if (/\b429\b|too many requests|rate.?limit(ed)?|resource.?exhausted|overloaded/.test(s)) {
+    return "rate-limit";
+  }
   return fallback;
 }
 
@@ -192,6 +200,8 @@ export function remedy(kind: FailureKind, providerKey: string, bin: string): str
       return `tăng --timeout (phút), hoặc giảm --rounds / bớt tư liệu -m`;
     case "budget":
       return `tăng "maxBudgetUsd" cho ${providerKey} trong cấu hình`;
+    case "rate-limit":
+      return `tài khoản bị giới hạn tần suất — chờ vài phút rồi chạy lại. Pha mở đầu gọi các vai SONG SONG, nên nếu nhiều vai dùng chung một tài khoản thì giảm số vai, hoặc đưa vai sang CLI khác hãng (\`agora doctor\` cho biết máy có gì)`;
     case "empty":
       return `CLI chạy xong nhưng không trả về nội dung — chạy lại cùng lệnh thủ công để xem CLI nói gì`;
     default:
