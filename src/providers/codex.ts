@@ -56,6 +56,7 @@ function make(spec: ProviderSpec): Agent {
       const r = await runPlanned(bin, groups, {
         cwd,
         timeoutMs,
+        ...(spec.env && { env: spec.env }),
         ...(delivery.stdin !== undefined && { stdin: delivery.stdin }),
       });
       if (r.timedOut) return { ok: false, error: `timeout after ${Math.round(r.ms / 1000)}s`, kind: "timeout", capture: r };

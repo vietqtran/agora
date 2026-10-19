@@ -15,10 +15,11 @@
   // Mặc định cho từng runtime. KHÔNG đặt "bin" ở config commit vào git —
   // đường dẫn tuyệt đối chỉ đúng trên một máy. Để detect tự giải quyết.
   "providers": {
-    // "bare": false chỉ dùng khi claude đã đăng nhập mà agora vẫn báo lỗi auth —
-    // --bare có báo cáo là bỏ qua OAuth/keychain. Đổi lại: persona sẽ nạp cả
-    // CLAUDE.md, hooks và MCP của dự án đang mở. Mặc định là true.
-    "claude": { "model": "sonnet", "maxBudgetUsd": 5, "effort": "medium", "bare": true },
+    // Để trống "bare" là tốt nhất: có ANTHROPIC_API_KEY (hoặc Bedrock/Vertex) thì tool
+    // xin --bare để persona không nạp CLAUDE.md/hooks/MCP của dự án; chỉ có đăng nhập
+    // OAuth thì KHÔNG xin, vì --bare không đọc OAuth/keychain và sẽ lỗi auth —
+    // lượt đó vẫn chạy nhưng bị đánh dấu hạ cấp. true/false để ép tay.
+    "claude": { "model": "sonnet", "maxBudgetUsd": 5, "effort": "medium" },
     "codex": { "effort": "medium" },
     // Để trống "sandbox" là tốt nhất: tool tự dò máy (seatbelt trên macOS,
     // docker/podman ở nơi khác) rồi mới xin --sandbox. Đặt true để ép xin kể cả khi dò

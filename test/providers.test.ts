@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { claudeProvider } from "../src/providers/claude.ts";
+import { claudeProvider, decideBare, keyAuthAvailable } from "../src/providers/claude.ts";
 import { codexProvider } from "../src/providers/codex.ts";
 import { geminiProvider, antigravityProvider } from "../src/providers/google.ts";
 import { customProvider, buildArgs, dotPath, extractText } from "../src/providers/custom.ts";
@@ -18,6 +18,23 @@ import { runCli } from "../src/spawn.ts";
 const FAKES = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "clis");
 const CWD = tmpdir();
 const fake = (n: string) => join(FAKES, n);
+
+/** The --bare decision reads the real env, so a test must pin it either way. */
+async function withEnv<T>(patch: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const prev = new Map(Object.keys(patch).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of prev) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
 
 /** Each fake reads FAKE_MODE; set it for the duration of one adapter call. */
 async function withMode<T>(mode: string, fn: () => Promise<T>): Promise<T> {
@@ -80,17 +97,46 @@ test("claude: an unknown optional flag triggers one retry without it", async () 
   assert.ok(r.ok, "the retry without optional flags must succeed");
 });
 
-test("claude: --bare is passed by default and removable with bare:false", async () => {
-  // The flag that keeps the user's CLAUDE.md/hooks/MCP out of the persona. It must be
-  // on without being asked for, and off when asked — it is the escape hatch for the
-  // reported --bare vs OAuth-login conflict.
-  const on = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
-  const rOn = await withMode("success", () => on.run("hỏi", CWD));
-  assert.ok(rOn.ok);
-  assert.match(rOn.text, /bare=true/);
+test("the --bare decision follows the credentials the machine actually has", () => {
+  // `claude --help`, 2.1.301: with --bare, "OAuth and keychain are never read" and auth
+  // is "strictly ANTHROPIC_API_KEY or apiKeyHelper". Asking for it on an account login
+  // therefore fails EVERY turn — which is most machines, so it cannot be the default.
+  assert.equal(keyAuthAvailable({ ANTHROPIC_API_KEY: "sk-x" }), true);
+  assert.equal(keyAuthAvailable({ CLAUDE_CODE_USE_BEDROCK: "1" }), true);
+  assert.equal(keyAuthAvailable({ CLAUDE_CODE_USE_VERTEX: "true" }), true);
+  assert.equal(keyAuthAvailable({ CLAUDE_CODE_USE_BEDROCK: "0" }), false, "an explicit off is not a credential");
+  assert.equal(keyAuthAvailable({}), false);
+
+  assert.deepEqual(decideBare(undefined, { ANTHROPIC_API_KEY: "sk-x" }), { on: true, note: null });
+  const noKey = decideBare(undefined, {});
+  assert.equal(noKey.on, false, "an OAuth-only machine must still get a working turn");
+  assert.match(noKey.note ?? "", /ANTHROPIC_API_KEY/);
+  assert.match(noKey.note ?? "", /CLAUDE\.md/, "and must be told what leaked in instead");
+
+  // Config overrides the probe in both directions, and an opt-out is still recorded.
+  assert.deepEqual(decideBare(true, {}), { on: true, note: null });
+  assert.match(decideBare(false, { ANTHROPIC_API_KEY: "sk-x" }).note ?? "", /"bare": false/);
+});
+
+test("claude: --bare rides on the api key, and bare:false always removes it", async () => {
+  const withKey = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
+  const rKey = await withEnv({ ANTHROPIC_API_KEY: "sk-test" }, () => withMode("success", () => withKey.run("hỏi", CWD)));
+  assert.ok(rKey.ok);
+  assert.match(rKey.text, /bare=true/);
+  assert.deepEqual(outcomeNotes(rKey), [], "the advertised isolation held, so nothing to report");
+
+  // The common machine: logged in with an account, no key in the environment.
+  const oauth = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
+  const rOauth = await withEnv(
+    { ANTHROPIC_API_KEY: undefined, CLAUDE_CODE_USE_BEDROCK: undefined, CLAUDE_CODE_USE_VERTEX: undefined },
+    () => withMode("success", () => oauth.run("hỏi", CWD)),
+  );
+  assert.ok(rOauth.ok, "an OAuth login must produce a turn, not an auth wall");
+  assert.match(rOauth.text, /bare=false/);
+  assert.match(outcomeNotes(rOauth).join(" "), /KHÔNG có --bare/);
 
   const off = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs"), bare: false });
-  const rOff = await withMode("success", () => off.run("hỏi", CWD));
+  const rOff = await withEnv({ ANTHROPIC_API_KEY: "sk-test" }, () => withMode("success", () => off.run("hỏi", CWD)));
   assert.ok(rOff.ok);
   assert.match(rOff.text, /bare=false/);
 });
@@ -99,14 +145,14 @@ test("claude: an auth failure under --bare names the opt-out instead of dead-end
   // argplan retries only on an UNKNOWN flag, so this failure is never retried. The one
   // thing the user can act on is the hint, so it has to travel with the error.
   const agent = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
-  const r = await withMode("bare-auth", () => agent.run("hỏi", CWD));
+  const r = await withEnv({ ANTHROPIC_API_KEY: "sk-test" }, () => withMode("bare-auth", () => agent.run("hỏi", CWD)));
   assert.ok(!r.ok && r.kind === "auth");
   assert.match((r as { error: string }).error, /OAuth session expired/);
   assert.match((r as { error: string }).error, /"bare": false/);
 
   // And the hint must be true: turning it off actually gets the turn through.
   const off = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs"), bare: false });
-  const rOff = await withMode("bare-auth", () => off.run("hỏi", CWD));
+  const rOff = await withEnv({ ANTHROPIC_API_KEY: "sk-test" }, () => withMode("bare-auth", () => off.run("hỏi", CWD)));
   assert.ok(rOff.ok, "bare:false must get past the auth failure the hint blames on --bare");
 });
 
@@ -121,7 +167,7 @@ test("claude: a dropped --bare is recorded as a degraded turn, not passed off as
   // The whole point of the note: this turn SUCCEEDS and reads like any other, while the
   // isolation the README advertises silently did not apply to it.
   const agent = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
-  const r = await withMode("unknown-flag", () => agent.run("hỏi", CWD));
+  const r = await withEnv({ ANTHROPIC_API_KEY: "sk-test" }, () => withMode("unknown-flag", () => agent.run("hỏi", CWD)));
   assert.ok(r.ok);
   const notes = outcomeNotes(r);
   assert.equal(notes.length, 1, "a degraded turn must carry exactly one retry note");
@@ -131,7 +177,7 @@ test("claude: a dropped --bare is recorded as a degraded turn, not passed off as
 
 test("claude: a clean turn carries no notes at all", async () => {
   const agent = claudeProvider.make({ provider: "claude", bin: fake("fake-claude.mjs") });
-  const r = await withMode("success", () => agent.run("hỏi", CWD));
+  const r = await withEnv({ ANTHROPIC_API_KEY: "sk-test" }, () => withMode("success", () => agent.run("hỏi", CWD)));
   assert.ok(r.ok);
   assert.deepEqual(outcomeNotes(r), []);
 });

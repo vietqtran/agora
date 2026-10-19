@@ -308,12 +308,20 @@ Tool gửi tư liệu của bạn tới **2-3 nhà cung cấp khác nhau trong c
   `Read`/shell vẫn đọc được mọi file mà user của bạn đọc được, kể cả ngoài thư mục tạm. Env
   của process cha cũng được kế thừa nguyên vẹn. Đừng chạy tool này dưới user có quyền bạn
   không muốn một model dùng tới.
-- **Không hút context của bạn**: adapter Claude truyền `--bare` để không tự nạp `CLAUDE.md`,
-  hooks, skills, MCP — persona phải là persona tool giao, không lẫn quy tắc dự án của bạn.
-  Hai điều kèm theo cần biết: `--bare` **có báo cáo là bỏ qua session OAuth/keychain**
-  (xem [Xử lý sự cố](#xử-lý-sự-cố)), và nó nằm trong nhóm cờ **tuỳ chọn** — nên một bản
-  `claude` không biết cờ này sẽ chạy **không có** lớp cách ly đó. Lượt như vậy không còn im
-  lặng: nó bị đánh dấu hạ cấp, kèm câu "persona có thể đã nạp CLAUDE.md/hooks/MCP của dự án".
+- **Không hút context của bạn — nhưng chỉ khi máy có API key.** Adapter Claude truyền
+  `--bare` để không tự nạp `CLAUDE.md`, hooks, skills, MCP. Vấn đề là `claude --help`
+  (bản 2.1.301) nói thẳng: với `--bare`, *"Anthropic auth is strictly ANTHROPIC_API_KEY
+  or apiKeyHelper via --settings (OAuth and keychain are never read)"*. Nghĩa là **đăng
+  nhập bằng tài khoản thì `--bare` làm mọi lượt lỗi auth** — mà đó là cách đăng nhập phổ
+  biến nhất. Nên tool dò trước, giống `--sandbox`:
+
+  | Máy có gì | Hành vi |
+  |---|---|
+  | `ANTHROPIC_API_KEY`, hoặc Bedrock/Vertex | xin `--bare` → persona sạch |
+  | chỉ đăng nhập OAuth (`claude /login`) | **không** xin `--bare` → lượt vẫn chạy, nhưng **bị đánh dấu hạ cấp** kèm câu "persona có thể đã nạp CLAUDE.md/hooks/skills/MCP của dự án" |
+
+  Ép tay: `"bare": true` (dùng `apiKeyHelper`/Foundry mà tool không dò được) hoặc
+  `"bare": false`. Cả hai hướng đều được ghi vào lượt.
 - **Prompt dài tự chuyển sang stdin** (ngưỡng 96 KB), vì Linux giới hạn 1 tham số argv ở
   128 KB và argv hiện trong `ps` cho mọi user trên máy.
 
@@ -340,10 +348,10 @@ giao diện web  thẻ của vai đó viền vàng, kèm dòng cảnh báo
 
 Những mất mát được gọi tên, không phải chỉ liệt kê cờ:
 
-| Cờ bị bỏ | Câu ghi vào lượt |
+| Cờ không có / bị bỏ | Câu ghi vào lượt |
 |---|---|
-| `--bare` (claude) | persona có thể đã nạp `CLAUDE.md`/hooks/skills/MCP của dự án |
-| `--sandbox` (agy, gemini) | không còn lớp chặn ghi nào ở mức OS |
+| `--bare` (claude) — bị CLI từ chối, **hoặc không xin vì máy chỉ có OAuth** | persona có thể đã nạp `CLAUDE.md`/hooks/skills/MCP của dự án |
+| `--sandbox` (agy, gemini) — bị từ chối, **hoặc không xin vì máy không có backend** | không còn lớp chặn ghi nào ở mức OS |
 | `tools.web_search` (codex) | vai này mất khả năng tra cứu, **số liệu có thể là bịa** |
 
 Lỗi sandbox cũng được tính là lý do thử lại, không chỉ lỗi "cờ không hỗ trợ": máy không có
@@ -371,20 +379,26 @@ riêng cho agora:
 ```
 
 **`auth: ...` nhưng `claude auth status` nói đã đăng nhập**
-Đây là lỗi riêng của `--bare` (cờ agora truyền để không nạp `CLAUDE.md`/hooks/MCP của bạn):
-theo các issue trên GitHub, cờ này **bỏ qua OAuth/keychain**, nên máy đăng nhập bằng *tài
-khoản* lỗi auth ở đây trong khi `ANTHROPIC_API_KEY` thì chạy bình thường. **Chưa kiểm chứng
-được tại chỗ** — máy viết tool không có account login để tái hiện; nếu bạn gặp, đây là cách ra:
+Đây là `--bare`, và không phải suy đoán — `claude --help` (2.1.301) ghi: *"Anthropic auth is
+strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never
+read)"*. Bình thường bạn **không gặp lỗi này**: không thấy API key thì tool tự bỏ `--bare`
+và ghi chú lượt đó là hạ cấp. Lỗi này chỉ xảy ra khi `--bare` *có* được truyền:
+
+- bạn đặt `"bare": true` mà máy không có key dùng được, hoặc
+- có `ANTHROPIC_API_KEY`/`apiKeyHelper` nhưng key đó bị từ chối.
+
+Hai cách sửa, chọn theo thứ bạn coi trọng hơn:
 
 ```json
-{ "providers": { "claude": { "bare": false } } }
+{ "providers": { "claude": { "bare": false } } }   // chạy được, nhưng persona lẫn context dự án
+```
+```bash
+export ANTHROPIC_API_KEY=sk-...                     # giữ persona sạch, không dùng quota tài khoản
 ```
 
-Đổi lại: persona Claude sẽ nạp cả `CLAUDE.md`, hooks, skills và MCP của dự án đang mở — quy
-tắc dự án của bạn trộn vào vai, và hai lần chạy ở hai máy khác nhau không còn so sánh được.
-Cơ chế thử lại trong `argplan.ts` **không cứu** được ca này: nó chỉ bắt lỗi "cờ không hỗ trợ",
-còn đây là một lỗi auth đúng khuôn dạng. Vì vậy thông báo lỗi và `doctor --health` sẽ tự nhắc
-dòng config trên thay vì để bạn tắc ở đó.
+Cơ chế thử lại trong `argplan.ts` **không cứu** được ca này: nó chỉ bắt lỗi "cờ không hỗ trợ"
+và lỗi sandbox, còn đây là một lỗi auth đúng khuôn dạng. Vì vậy thông báo lỗi và
+`doctor --health` tự nhắc hai dòng trên thay vì để bạn tắc ở đó.
 
 **Kiểm tra nhanh trước mỗi lần dùng nghiêm túc**
 
@@ -399,7 +413,7 @@ lỗi riêng nó.
 
 ## Giới hạn cần biết
 
-- **Đã kiểm chứng tới đâu.** 195 test chạy trên **CLI giả**, không cần cài agent nào.
+- **Đã kiểm chứng tới đâu.** 196 test chạy trên **CLI giả**, không cần cài agent nào.
   Ngoài ra đã chạy thật trên Ubuntu 24.04 / Node 22.22 với **codex 0.145.0**: trọn giao
   thức mở đầu → chất vấn → phán quyết, định tuyến câu hỏi đúng, `STATUS: NEEDS_INPUT` chặn
   việc soạn hồ sơ đúng như thiết kế, và đường huỷ phiên khi dưới 2 chuyên gia phát biểu
@@ -407,7 +421,10 @@ lỗi riêng nó.
   máy test chưa đăng nhập claude, nên chỉ xác nhận được nhánh báo lỗi `auth`. Chạy
   `doctor --health` trên máy bạn trước khi tin kết quả; nếu một cờ không được hỗ trợ,
   `argplan.ts` tự thử lại không có nhóm cờ tuỳ chọn — nhưng **chỉ** với lỗi "cờ không hỗ
-  trợ", mọi lỗi khác (kể cả auth do `--bare`) không được thử lại.
+  trợ" và lỗi sandbox, mọi lỗi khác (kể cả auth do `--bare`) không được thử lại.
+  Hành vi của `--bare` thì **đã xác minh**: đọc trực tiếp `claude --help` của bản 2.1.301
+  trên Ubuntu 24.04 — "OAuth and keychain are never read". Đó là lý do nó thành có điều kiện
+  thay vì mặc định bật.
 - **Antigravity (`agy`) và Gemini CLI chưa được chạy thử lần nào** — viết theo tài liệu
   headless, chưa có máy nào cài để xác nhận.
 - **Chi phí USD chỉ Claude báo.** Codex/Gemini/Antigravity báo token hoặc không báo gì;
@@ -432,7 +449,7 @@ lỗi riêng nó.
 ## Phát triển
 
 ```bash
-npm test             # 195 test, không cần CLI nào
+npm test             # 196 test, không cần CLI nào
 npm run typecheck    # tsc --noEmit
 ```
 

@@ -179,10 +179,10 @@ export function classify(stderr: string, fallback: FailureKind = "other"): Failu
 export function remedy(kind: FailureKind, providerKey: string, bin: string): string {
   switch (kind) {
     case "auth":
-      // Claude has a second, non-obvious cause: `--bare` reportedly ignores the
-      // OAuth/keychain session, so a CLI that is genuinely logged in still fails here.
+      // Claude has a second, non-obvious cause: with `--bare` the CLI never reads OAuth
+      // or the keychain (its own --help says so), so a CLI that IS logged in still fails.
       return providerKey === "claude"
-        ? `chạy \`${bin}\` trên máy này rồi đăng nhập (/login). Nếu \`${bin}\` báo đã đăng nhập mà vẫn lỗi: đặt "providers": { "claude": { "bare": false } } — đổi lại persona sẽ nạp cả CLAUDE.md/hooks/MCP của dự án`
+        ? `chạy \`${bin}\` trên máy này rồi đăng nhập (/login). Nếu \`${bin}\` báo đã đăng nhập mà vẫn lỗi auth ở đây: đó là --bare (không đọc OAuth/keychain) — đặt ANTHROPIC_API_KEY, hoặc "providers": { "claude": { "bare": false } }`
         : `chạy \`${bin}\` trên máy này rồi đăng nhập (vd. /login), sau đó thử lại`;
     case "model":
       return `model đang yêu cầu không dùng được với tài khoản này — đặt "providers": { "${providerKey}": { "model": "<model hợp lệ>" } } trong agora.config.json`;

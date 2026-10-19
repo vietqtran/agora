@@ -34,15 +34,53 @@ function allowedTools(spec: ProviderSpec): string {
   return t.join(",");
 }
 
-// `--bare` is reported upstream to bypass the OAuth/keychain session (we have NOT
-// reproduced it: the machine this was written on has no account login). That failure is
-// a dead end, because argplan's retry only fires on an UNKNOWN-flag error and this one
-// arrives as a well-formed auth error. Dropping the flag automatically would be worse —
-// the turn would silently inherit the user's CLAUDE.md, hooks and MCP, the one thing
-// this adapter promises not to do. So we name the exit and let the user choose it.
+// The `--bare` trade-off, straight from `claude --help` on 2.1.301:
+//
+//   "Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings
+//    (OAuth and keychain are never read). 3P providers (Bedrock/Vertex/Foundry) use
+//    their own credentials."
+//
+// So the flag that keeps the user's CLAUDE.md, hooks and MCP out of the persona also
+// makes an ACCOUNT login unusable — and an account login is the common case. Passing it
+// unconditionally would turn every turn into an auth failure on most machines; dropping
+// it unconditionally would silently contaminate every persona. Neither is acceptable, so
+// we check which credentials this machine actually has and record which way it went.
+const API_KEY_VARS = ["ANTHROPIC_API_KEY"];
+/** 3P credentials are untouched by --bare, so these count as "key-based" too. */
+const THIRD_PARTY_VARS = ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"];
+
+function on(v: string | undefined): boolean {
+  return !!v && v !== "0" && v.toLowerCase() !== "false";
+}
+
+export function keyAuthAvailable(env: NodeJS.ProcessEnv): boolean {
+  return API_KEY_VARS.some((k) => !!env[k]) || THIRD_PARTY_VARS.some((k) => on(env[k]));
+}
+
+const CONTAMINATION = "persona có thể đã nạp CLAUDE.md/hooks/skills/MCP của dự án";
+
+/** Ask for `--bare`? Explicit config wins; otherwise go by the credentials present. */
+export function decideBare(
+  configured: boolean | undefined,
+  env: NodeJS.ProcessEnv,
+): { on: boolean; note: string | null } {
+  if (configured === false) return { on: false, note: `lượt này KHÔNG có --bare vì cấu hình đặt "bare": false — ${CONTAMINATION}` };
+  if (configured === true) return { on: true, note: null };
+  if (keyAuthAvailable(env)) return { on: true, note: null };
+  return {
+    on: false,
+    note:
+      "lượt này KHÔNG có --bare vì máy không có ANTHROPIC_API_KEY và --bare thì không đọc " +
+      `OAuth/keychain — ${CONTAMINATION}. Muốn có lại lớp cách ly: đặt ANTHROPIC_API_KEY, hoặc "bare": true nếu dùng apiKeyHelper/Bedrock/Vertex`,
+  };
+}
+
+// Only reachable when --bare WAS passed: either a key exists and is being refused, or the
+// user forced the flag on. argplan's retry cannot rescue this — it fires on an unknown
+// flag, and this arrives as a well-formed auth error — so the exit has to be named here.
 const BARE_AUTH_HINT =
-  'nếu `claude` nói đã đăng nhập thì thử tắt --bare: "providers": { "claude": { "bare": false } } ' +
-  "(đổi lại persona sẽ nạp cả CLAUDE.md/hooks/MCP của dự án)";
+  "--bare không đọc OAuth/keychain (xem `claude --help`), nên tài khoản đăng nhập kiểu OAuth sẽ lỗi auth ở đây: " +
+  'đặt ANTHROPIC_API_KEY, hoặc "providers": { "claude": { "bare": false } } (đổi lại persona sẽ nạp context của dự án)';
 
 function bareHint(error: string, kind: FailureKind, bare: boolean): string {
   return kind === "auth" && bare ? `${error} — ${BARE_AUTH_HINT}` : error;
@@ -71,7 +109,6 @@ function make(spec: ProviderSpec): Agent {
   const bin = spec.bin ?? "claude";
   const model = spec.model ?? "sonnet";
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const bare = spec.bare !== false;
 
   return {
     provider: "claude",
@@ -81,6 +118,10 @@ function make(spec: ProviderSpec): Agent {
     caps: { execute: spec.execute === true, web: spec.web === true, reportsCost: true },
     async run(prompt, cwd): Promise<AgentOutcome> {
       const delivery = deliverPrompt(prompt, spec.promptMode === "stdin" ? "stdin" : undefined);
+      // Decided per turn, like the sandbox probe: `spec.env` is merged into the child's
+      // environment, so it settles the credential question alongside the real env.
+      const decision = decideBare(spec.bare, { ...process.env, ...(spec.env ?? {}) });
+      const bare = decision.on;
       const groups: ArgGroup[] = [
         { args: ["-p", delivery.argvPrompt ?? ""] },
         { args: ["--output-format", "json"] },
@@ -92,9 +133,7 @@ function make(spec: ProviderSpec): Agent {
         // Optional, so an older CLI that never heard of it still produces a turn. Such a
         // run has LOST this isolation, so the loss is named: the retry note says the
         // persona may have absorbed the project's CLAUDE.md, hooks and MCP.
-        ...(bare
-          ? [{ args: ["--bare"], optional: true, lost: "cách ly context (--bare) — persona có thể đã nạp CLAUDE.md/hooks/skills/MCP của dự án" }]
-          : []),
+        ...(bare ? [{ args: ["--bare"], optional: true, lost: `cách ly context (--bare) — ${CONTAMINATION}` }] : []),
         { args: ["--allowedTools", allowedTools(spec)] },
         // A research debate must never edit the user's files. Required, not optional:
         // if this flag cannot be set we would rather the turn fail than run unguarded.
@@ -120,9 +159,16 @@ function make(spec: ProviderSpec): Agent {
       const r = await runPlanned(
         bin,
         groups,
-        { cwd, timeoutMs, ...(delivery.stdin !== undefined && { stdin: delivery.stdin }) },
+        {
+          cwd,
+          timeoutMs,
+          // Documented as "extra env for the child" — and silently ignored here until now.
+          ...(spec.env && { env: spec.env }),
+          ...(delivery.stdin !== undefined && { stdin: delivery.stdin }),
+        },
         looksFailed,
       );
+      if (decision.note) r.notes = [...(r.notes ?? []), decision.note];
 
       if (r.timedOut) {
         const meta = envelopeMeta(r.stdout);
